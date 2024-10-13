@@ -1,7 +1,0 @@
-{
-    "architecture_file": ,
-    "network_class_name": "SimpleNet",
-    "num_networks": 5,
-    "data_path": "",
-    "loss_threshold": 0.01
-}
