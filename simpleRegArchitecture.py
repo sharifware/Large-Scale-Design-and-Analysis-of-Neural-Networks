@@ -1,5 +1,8 @@
 import torch.nn as nn
 
+#2 hidden layers
+#8 neurons
+#2-5-5-1
 class SimpleNet(nn.Module):
     # 2 because a, b
     input_size = 2
