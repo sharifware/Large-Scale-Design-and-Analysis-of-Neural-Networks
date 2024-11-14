@@ -4,7 +4,7 @@ import pandas as pd
 np.random.seed(12)
 
 # Generate data for the fn
-num_training_points = 200
+num_training_points = 400
 a = np.random.randn(num_training_points, 1)
 b = np.random.randn(num_training_points, 1)
 
