@@ -11,3 +11,15 @@
 - I have to figure out what Jhon would consider the success criteria. riht now i will jsut track the loss over the first 100 iterations
 - Will change the criteria for stopping the tracking once we figure out how much we want to change
 - forgot to take notes before this class so wrote down as much as i remember from the past few weeks in the engineering notebook branch
+
+# 11/05/2024
+- Meeting with Jhon went well. he explained current issues in my code
+
+# 11/4/2024
+- Jhon explained that user will input the number of epochs we want to see the change from
+
+# 11/5/2024
+- Worked on my presentation.
+
+# 11/7/2024
+Changed criteion to use mean squared error
