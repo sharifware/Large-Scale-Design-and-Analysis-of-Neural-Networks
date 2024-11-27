@@ -76,7 +76,7 @@ class NetworkAnalyzer:
 
     def __train_network__(self, model: nn.Module, train_loader: DataLoader, num_epochs: int, optimizer, loss_fn: torch.nn.Module):
         """
-        Trains a single network model over a specified number of epochs.
+        Trains a single network model over a specified number of epochs with early stopping.
 
         Args:
             model (nn.Module): The PyTorch neural network model to train.
@@ -86,6 +86,11 @@ class NetworkAnalyzer:
             loss_fn (torch.nn.Module): The loss function used to compute the training loss.
         """
         model.train()
+        best_loss = None
+        epochs_no_improve = 0
+        early_stopping_patience = None
+        early_stopping_min_delta = 0.05
+
         for epoch in range(num_epochs):
             print(f"Epoch {epoch+1}/{num_epochs}")
             for batch in train_loader:
@@ -95,8 +100,23 @@ class NetworkAnalyzer:
                 loss = loss_fn(output, target)  
                 loss.backward()                 
                 optimizer.step()                
-            self.__show_loss__(epoch, loss.item())  # Print loss per epoch
-            self.loss_history.append(loss.item())
+
+            current_loss = loss.item()
+            self.__show_loss__(epoch, current_loss)  # Print loss per epoch
+            self.loss_history.append(current_loss)
+
+            # Early Stopping Logic
+            if best_loss is None:
+                best_loss = current_loss
+            elif current_loss < best_loss - early_stopping_min_delta:
+                best_loss = current_loss
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+
+            if early_stopping_patience is not None and epochs_no_improve >= early_stopping_patience:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
             # model.final_loss = loss.item()      # Save the final loss in the model
 
     def __train_network_GPU__(self, model: nn.Module, train_loader: DataLoader, num_epochs: int, optimizer, loss_fn: torch.nn.Module, device):
@@ -130,11 +150,13 @@ class NetworkAnalyzer:
         print(f"loss_history[-2] = {self.loss_history[-2]}")
 
         if self.loss_history[-1] <= self.success_loss and (self.loss_history[-1] - self.loss_history[-2] < self.convergence_threshold):
-            self.working_networks[f'network_{self.attempt+1}'] = network.state_dict()
+            self.working_networks[f'network_{self.success_count+1}'] = network.state_dict()
             # torch.save(network.state_dict(), os.path.join(self.working_dir, f'network_{self.attempt+1}.pt'))
+            self.attempt = 0
             self.success_count += 1
         else:
-            self.broken_networks[f'network_{self.attempt+1}'] = network.state_dict()
+            self.broken_networks[f'network_{self.success_count+1}_{self.attempt}'] = network.state_dict()
+            self.attempt += 1  # Increment attempt counter
             # torch.save(network.state_dict(), os.path.join(self.broken_dir, f'network_{self.attempt+1}.pt'))
     
     def __save_networks__(self):
@@ -162,6 +184,9 @@ class NetworkAnalyzer:
                 print("Error: Maximum number of attempts reached without meeting success criteria.")
                 break
 
+            #reset loss hist
+            self.loss_history = []
+
             # Instantiate a new network
             network_to_be = self.model_architecture()
             optimizer = torch.optim.SGD(network_to_be.parameters(), lr=0.1, momentum=0.9)  # SGD optimizer
@@ -171,7 +196,7 @@ class NetworkAnalyzer:
 
             # Check if the network meets the success criteria
             self.__check_success__(network_to_be)
-            self.attempt += 1  # Increment attempt counter
+            
 
         if self.success_count == self.amount_to_produce:
             print(f"Successfully trained {self.success_count} networks.")
@@ -220,7 +245,7 @@ class NetworkAnalyzer:
 
         # Start Generating Networks
         while self.success_count < self.amount_to_produce:
-            print(f"Training Network {self.attempt+1}")
+            print(f"Training Network {self.success_count+1}")
 
             # Stop if maximum attempts are reached
             if self.attempt >= self.max_attempts:
