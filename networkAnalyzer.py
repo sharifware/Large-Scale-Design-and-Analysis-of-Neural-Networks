@@ -35,7 +35,8 @@ class NetworkAnalyzer:
         # Ensure directories for saving networks exist
         self.working_dir = "Working Networks"
         self.broken_dir = "Broken Networks"
-        self.working_networks = []
+        self.working_networks = {}
+        self.broken_networks = {}
 
         # Set up directories
         if not os.path.exists(self.working_dir):
@@ -125,15 +126,21 @@ class NetworkAnalyzer:
             self.loss_history.append(loss.item())    # Save the final loss in the model
 
     def __check_success__(self, network: torch.nn.Module ):
-        print(self.loss_history)
         print(f"loss_history[-1] = {self.loss_history[-1]}")
         print(f"loss_history[-2] = {self.loss_history[-2]}")
 
         if self.loss_history[-1] <= self.success_loss and (self.loss_history[-1] - self.loss_history[-2] < self.convergence_threshold):
-            torch.save(network.state_dict(), os.path.join(self.working_dir, f'network_{self.attempt+1}.pt'))
+            self.working_networks[f'network_{self.attempt+1}'] = network.state_dict()
+            # torch.save(network.state_dict(), os.path.join(self.working_dir, f'network_{self.attempt+1}.pt'))
             self.success_count += 1
         else:
-            torch.save(network.state_dict(), os.path.join(self.broken_dir, f'network_{self.attempt+1}.pt'))
+            self.broken_networks[f'network_{self.attempt+1}'] = network.state_dict()
+            # torch.save(network.state_dict(), os.path.join(self.broken_dir, f'network_{self.attempt+1}.pt'))
+    
+    def __save_networks__(self):
+        torch.save(self.working_networks, f'{self.working_dir}/working_networks.pt')
+        torch.save(self.broken_networks, f'{self.broken_dir}/broken_networks.pt')
+        
     
     def generate_networks(self, train_loader: DataLoader, test_loader: DataLoader, num_epochs: int, loss_fn: torch.nn.Module):
         """
@@ -172,6 +179,8 @@ class NetworkAnalyzer:
             print(f"{self.success_count} successful networks created out of {self.amount_to_produce}.")
         
         print(f"Attemps:{self.attempt}, successfull networks: {self.success_count}")
+
+        self.__save_networks__()
         
         # Reset these parameters to run the Analyzer again
         self.attempt = 0
