@@ -41,3 +41,17 @@ Today I worked on the presentation. I started a powerpoint and simply added ever
 Today I worked on some code. I was able to make the code more organized, and more fitting for a python package. I also fixed a small bugged that didn't allow you to train a network right after another. Lastly, I added support for GPU training. This supports both Nvidia GPUs and Apple M1.
 
 I still have to implement the better way to do the success criteria**
+
+### Entry 11/12/2024
+I changed the success criteria and made it so that the user inputs 2 values: Minimum loss for the network to be considered trained
+and the convergence threshold, which is the max difference between the last 2 epochs of training to make sure the model is 
+converging
+
+### Entry 11/18
+Met with John, and made some changes to the code. I got a TA's help (Walter the GOAT) to make my code cleaner, as I had a lot of repetition. I also started looking over Simon's code to integrate the main class with his, and also with Sharif's Code.
+
+### Entry 11/22
+Have barely had any time to work on the project, but I've just been looking over Simon's code and trying to refactor it to make it work with mine. Looks like I will have to change some parts of my code, because the way I am saving the Networks is not the same as he is doing.
+
+### Entry 11/29/2024
+Today I worked on the SRS and did requirement for the User Interface. I also did the Dataflow diagrams levels 0, 1 and 2.
