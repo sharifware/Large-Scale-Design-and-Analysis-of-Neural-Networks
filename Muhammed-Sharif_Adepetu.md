@@ -32,8 +32,20 @@
 
 # 11/19/2024  
 - Re-merged my provided code with Daniel's.  
-- Added detailed notes to the methodology section of the final report to outline the visualization function's purpose, implementation, and expected outcomes.  
+- Added detailed notes to the methodology section of the final report to outline the visualization function's purpose, implementation, and expected outcomes.
 
 # 11/21/2024  
 - Made additional revisions to the software design document.  
-- Updated Jira to reflect the conclusion of the sprint.  
+- Updated Jira to reflect the conclusion of the sprint. 
+
+# 11/26/2024  
+- Worked on the Software Requirements Specification (SRS) document, incorporating the TAs' comments about adding more detail to the functional requirements and user scenarios.  
+
+# 11/28/2024  
+- Revised the project poster based on feedback from TA. Made changes to the visual design and ensured all graphs and diagrams were properly labeled.  
+- Updated the PowerPoint to include additional testing data and a clearer breakdown of the project's contributions.  
+
+# 12/2/2024  
+- Woekd on final project presenation. added design considerations and subsystem design slides.  
+
+ 
