@@ -102,3 +102,30 @@ o	https://github.com/sharifware/Large-Scale-Design-and-Analysis-of-Neural-Networ
 - met with John and tried to train a couple networks using the new system.
 - worked on fitting curve to histogram
 
+
+
+# 11/27/2024
+- commited code I've been working on the past few days of training a new network in the class implementation
+- for my reference: networks_state_dict = {}
+for i, network in enumerate(networks):
+    train_network(X_train, y_train, X_test, y_test, network, num_epochs)
+    print(f"finished training network: {i}")
+    networks_state_dict[f'network_{i}'] = network.state_dict()
+
+Save the state dict as a file
+output_dir = config.get("output_dir")
+torch.save(networks_state_dict, f'{output_dir}/trainedNetworks.pt')
+
+### forgot to update my journal in this stretch :(
+
+# 12/3/2024
+- pushed code for visualizing and comparing unique distributions so I could retrain a new batch of networks
+- something happend to it when I tried to show it to John in class. 
+- I guess I'll have to redo it unfortanelty 
+
+# 12/4/2024
+- rewrote the code that I somehow lost yesterday and pushed
+- still don't know what happened with that pretty frustrating
+- I feel like with this we've accomplished the minimum viable product we set out to at the beginning of the semester.
+- Trying to get presentation things figured out
+- finished recording my part of the presentation, may have to modify after others since we didn't do it in person
