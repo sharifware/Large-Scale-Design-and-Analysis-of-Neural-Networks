@@ -31,7 +31,6 @@ for name, model in models.items():
     print(f"Loaded model: {name}")
     print(model)
     
-    
 class SimpleNet(nn.Module):
     # 2 because a, b
     input_size = 2
