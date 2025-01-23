@@ -11,8 +11,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-license = "MIT"
-license-files = ["LICEN[CS]E*"]
+
 
 [project.urls]
 Homepage = "https://github.com/sharifware/Large-Scale-Design-and-Analysis-of-Neural-Networks"
