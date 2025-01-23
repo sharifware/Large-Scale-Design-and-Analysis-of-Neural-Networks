@@ -1,0 +1,4 @@
+generateData
+inputNetwork
+simpleRegArchitecture
+standardRegArchitercture
