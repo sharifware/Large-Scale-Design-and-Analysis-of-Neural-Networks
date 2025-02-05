@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from standardRegArchitercture import SimpleNet
+#from largerNetArchitecture import SimpleNet
 from scipy.stats import norm
 from scipy.optimize import curve_fit
 from sklearn.mixture import GaussianMixture
@@ -16,21 +16,24 @@ from scipy.stats import norm
 
 
 
-class nnanalyser():
+class WeightBinning():
+
+    def set_directory(self, directory):
+        self.directory = directory
 
     def load_models(self):
     # Load models into a dictionary
         # Path to the directory containing the saved networks
         #directory = "/Users/dani/Documents/GitHub/Large-Scale-Design-and-Analysis-of-Neural-Networks/Working Networks"
-        directory = "working_networks"
+        #directory = "working_networks"
 
         # List all model files in the directory (assuming .pt or .pth extensions)
-        model_files = [f for f in os.listdir(directory) if f.endswith('.pt') or f.endswith('.pth')]
+        model_files = [f for f in os.listdir(self.directory) if f.endswith('.pt') or f.endswith('.pth')]
 
 
         models = {}
         for model_file in model_files:
-            model_path = os.path.join(directory, model_file)
+            model_path = os.path.join(self.directory, model_file)
             model_name = os.path.splitext(model_file)[0]  # Use the file name (without extension) as the key
             models[model_name] = torch.load(model_path)
 
@@ -41,7 +44,7 @@ class nnanalyser():
         
 
         
-    def bin(self):
+    def bin(self, network):
         self.NUM_BINS = 30
 
         working_networks_path = "./working_networks.pt"

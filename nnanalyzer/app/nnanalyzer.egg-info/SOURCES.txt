@@ -1,6 +1,6 @@
 LICENCE
-pyproject.toml
 setup.py
+app/nnanalyzer/__init__.py
 app/nnanalyzer.egg-info/PKG-INFO
 app/nnanalyzer.egg-info/SOURCES.txt
 app/nnanalyzer.egg-info/dependency_links.txt
