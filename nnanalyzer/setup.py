@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-with open("README.md","r") as f:
+with open("Readme.md","r") as f:
     long_description = f.read()
 
 setup(
@@ -11,7 +11,7 @@ setup(
     packages=find_packages(where="ap"),
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/sharifware/Large-Scale-Design-and-Analysis-of-Neural-Networks"
+    url="https://github.com/sharifware/Large-Scale-Design-and-Analysis-of-Neural-Networks",
     author="ERAU Large Scale Design & Analysis of Neural Networks",
     install_requires=["matplotlib", "os", "importlib.util", "torch" "pandas", "numpy", "sklearn", "standardRegArchitercture",
                       "scipy"],
