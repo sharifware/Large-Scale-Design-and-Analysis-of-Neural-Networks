@@ -1,0 +1,8 @@
+matplotlib
+os
+importlib.util
+torchpandas
+numpy
+sklearn
+standardRegArchitercture
+scipy
