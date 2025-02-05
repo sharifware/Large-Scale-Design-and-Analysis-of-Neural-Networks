@@ -16,11 +16,9 @@ from scipy.stats import norm
 
 
 
-class nn_analyser():
+class nnanalyser():
 
-
-
-    def load_models():
+    def load_models(self):
     # Load models into a dictionary
         # Path to the directory containing the saved networks
         #directory = "/Users/dani/Documents/GitHub/Large-Scale-Design-and-Analysis-of-Neural-Networks/Working Networks"
@@ -43,8 +41,8 @@ class nn_analyser():
         
 
         
-    def bin():
-        NUM_BINS = 30
+    def bin(self):
+        self.NUM_BINS = 30
 
         working_networks_path = "./working_networks.pt"
         broken_networks_path = "BrokenNetworks/broken_networks.pt"
@@ -54,18 +52,18 @@ class nn_analyser():
 
         #create new instantiations to contain the saved networks
         num_networks = len(loaded_state_dict)
-        networks = []
+        self.networks = []
         for n in range(num_networks):
-            networks.append(SimpleNet())
+            self.networks.append(SimpleNet())
 
-        for i, network in enumerate(networks):
+        for i, network in enumerate(self.networks):
             state_dict_key = f'network_{i+1}'
             network.load_state_dict(loaded_state_dict[state_dict_key])
 
     ##Get min and max weight values in each layer of the networks
 
 
-    def __getMinOrMax__(networks, layerNum, getMin):
+    def __getMinOrMax__(self, networks, layerNum, getMin):
         """
         Parameters:
         - networks: an array of trained pytorch networks where the layers are nn.Linear
@@ -89,66 +87,69 @@ class nn_analyser():
         else:
             return max(weights) + 1e-6
 
-    def store_weights(networks, network_fc_indices, layer_weight_distributions, layer_bin_ranges, NUM_BINS):
+    def store_weights(self):
 
         #for each fully connected layer, create matrix of shape (N, M, B) where
         #N = num neurons in layer
         #M = num neurons in previous layer
         #B = number of bins
+        self.layer_weight_distributions = []
+        self.layer_bin_ranges = []
+        network_fc_indices = []
             
-        layers = networks[0].children()
+        layers = self.networks[0].children()
         fcLayerNum = -1
         for index, layer in enumerate(layers):
             if isinstance(layer, nn.Linear):
                 fcLayerNum += 1
-                layerMin = __getMinOrMax__(networks, fcLayerNum, True)
-                layerMax = __getMinOrMax__(networks, fcLayerNum, False)
+                layerMin = self.__getMinOrMax__(self.networks, fcLayerNum, True)
+                layerMax = self.__getMinOrMax__(self.networks, fcLayerNum, False)
                 #for each layer make an array of shape (num of neurons in layer, num of inputs to layer, num of bins)
                 network_fc_indices.append(index)
                 layer_shape = layer.weight.shape
-                layer_weight_distributions.append(np.zeros(layer_shape + (NUM_BINS,), dtype=int))
+                self.layer_weight_distributions.append(np.zeros(layer_shape + (self.NUM_BINS,), dtype=int))
                 #subtract 1 to make 0-indexed
-                bin_edges = np.histogram_bin_edges(a=[], bins=(NUM_BINS), range=(layerMin, layerMax))
-                layer_bin_ranges.append(bin_edges)
+                bin_edges = np.histogram_bin_edges(a=[], bins=(self.NUM_BINS), range=(layerMin, layerMax))
+                self.layer_bin_ranges.append(bin_edges)
 
                 
                 
         #Generate matrix of shape layer, network, neuron, incoming weight
-        network_weights = []
+        self.network_weights = []
         for index, layer_index in enumerate(network_fc_indices):
             network_weights_per_layer = []
-            for network in networks:
+            for network in self.networks:
                 net_layers = list(network.children())
                 network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
-            network_weights.append(network_weights_per_layer)
+            self.network_weights.append(network_weights_per_layer)
 
         # print(layer_weight_distributions[0].shape)
-        print(layer_bin_ranges)
+        print(self.layer_bin_ranges)
         #print the first weight of the first fully connected layer of the first network
-        print(network_weights)
+        print(self.network_weights)
 
-    def populate_bins(layer_weight_distributions, NUM_BINS):
+    def populate_bins(self):
 
-        for layer_num, layer_distribution in enumerate(layer_weight_distributions):
+        for layer_num, layer_distribution in enumerate(self.layer_weight_distributions):
             #iterate over neurons in layer
             for i in range(layer_distribution.shape[0]):  
                 #iterate over incoming weights to neuron
                 for j in range(layer_distribution.shape[1]):  # incoming weights
                     # for this weight, iterate over each network to add data to corresponding bin
-                    for network in network_weights[layer_num]:
+                    for network in self.network_weights[layer_num]:
                         #select network[neuron i, incoming weight j]
                         weight = network[i][j]
-                        corresponding_bin = np.digitize(weight, layer_bin_ranges[layer_num], right=False) - 1
-                        if corresponding_bin >= NUM_BINS or corresponding_bin < 0:
+                        corresponding_bin = np.digitize(weight, self.layer_bin_ranges[layer_num], right=False) - 1
+                        if corresponding_bin >= self.NUM_BINS or corresponding_bin < 0:
                             print(weight)
                             print(corresponding_bin)
                         
-                        layer_weight_distributions[layer_num][i][j][corresponding_bin] += 1
-                        print(layer_weight_distributions[0].shape)
-                        print(layer_weight_distributions[0])
+                        self.layer_weight_distributions[layer_num][i][j][corresponding_bin] += 1
+                        print(self.layer_weight_distributions[0].shape)
+                        print(self.layer_weight_distributions[0])
 
 
-    def plot_weight_bins(weight_distributions, layer, weight_position, bin_edges):
+    def plot_weight_bins(self, weight_distributions, layer, weight_position, bin_edges):
             """
             Parameters:
             - weight_distributions: weight counts in the shape (layer, neuron, incoming weight, bin)
@@ -174,12 +175,13 @@ class nn_analyser():
             plt.show()
 
             # neuron 10 in layer 1(0) coming from input neuron 2
-            print(layer_bin_ranges)
+            print(self.layer_bin_ranges)
             #currently bin_edges are global and aren't specific to each layer
-            plot_weight_bins(layer_weight_distributions, layer=0, weight_position=(0, 0), bin_edges=layer_bin_ranges[0])
+            # plot_weight_bins(self.layer_weight_distributions, layer=0, weight_position=(0, 0), bin_edges=self.layer_bin_ranges[0])
 
-    def normalize_distributions():
-        for layer in layer_weight_distributions:
+    def normalize_distributions(self):
+        self.normalized_distributions = []
+        for layer in self.layer_weight_distributions:
             layer_counts = []
             for neuron in layer:
                 neuron_counts = []
@@ -189,20 +191,20 @@ class nn_analyser():
                     normalized_bin_counts = [bin_count / total for bin_count in from_weight]
                     neuron_counts.append(np.array(normalized_bin_counts))
                 layer_counts.append(np.array(neuron_counts))
-            normalized_distributions.append(np.array(layer_counts))
+            self.normalized_distributions.append(np.array(layer_counts))
 
 
         # print(len(normalized_counts))
         # print(sum(normalized_counts[0]))
         # print(normalized_counts[0])
 
-        print(layer_bin_ranges[0])
+        print(self.layer_bin_ranges[0])
         # print(normalized_counts[0])
 
     def normal_pdf(x, mu, sigma, amplitude):
         return amplitude * norm.pdf(x, mu, sigma)
 
-    def return_weight_bins_plot(weight_distributions, layer, weight_position, bin_edges):
+    def return_weight_bins_plot(self, weight_distributions, layer, weight_position, bin_edges):
         """
         Parameters:
         - weight_distributions: weight counts in the shape (layer, neuron, incoming weight, bin)
@@ -230,10 +232,10 @@ class nn_analyser():
 
 
 
-    def plot_index(layer_weight_distributions, layer_bin_ranges):
+    def plot_index(self, layer_weight_distributions, layer_bin_ranges):
 
         for layer_index in range(len(layer_weight_distributions)):
-            counts = np.array(normalized_counts[layer_index])
+            counts = np.array(self.normalized_counts[layer_index])
 
             min_val_layer = np.min(layer_bin_ranges[layer_index])
             max_val_layer = np.max(layer_bin_ranges[layer_index])
@@ -243,15 +245,15 @@ class nn_analyser():
 
             initial = [np.mean(bin_centers), np.std(bin_centers), np.max(counts)]
 
-            fits, covariance = curve_fit(normal_pdf, bin_centers, counts, p0=initial)
+            fits, covariance = curve_fit(self.normal_pdf, bin_centers, counts, p0=initial)
 
             mu_fit, sigma_fit, amplitude_fit = fits
             print(f"Fitted parameters:\nMu = {mu_fit}\nSigma = {sigma_fit}\nAmplitude = {amplitude_fit}")
 
-            y_fit = normal_pdf(bin_centers, mu_fit, sigma_fit, amplitude_fit)
+            y_fit = self.normal_pdf(bin_centers, mu_fit, sigma_fit, amplitude_fit)
             print(y_fit)
 
-            fig, ax = return_weight_bins_plot(layer_weight_distributions, layer_index, (0, 0), layer_bin_ranges[layer_index])
+            fig, ax = self.return_weight_bins_plot(layer_weight_distributions, layer_index, (0, 0), layer_bin_ranges[layer_index])
 
             ax.plot(bin_centers, y_fit, color='red', linewidth=2, label='Fitted Normal Distribution')
 
@@ -259,10 +261,10 @@ class nn_analyser():
             plt.show()
 
 
-    def gaussian(x, A, mu, sigma):
+    def gaussian(self,  x, A, mu, sigma):
             return A * np.exp(- (x - mu)**2 / (2 * sigma**2))
 
-    def fit_gaussians_to_weight_distributions(weight_distributions, bin_edges_list):
+    def fit_gaussians_to_weight_distributions(self, weight_distributions, bin_edges_list):
         """
         Fit Gaussian curves to all weight histograms and save the fit parameters.
 
@@ -275,7 +277,7 @@ class nn_analyser():
         - fit_params: List of fit parameters, mirroring the structure of weight_distributions.
                     Each layer's fit parameters are stored as a NumPy array (neuron, incoming weight, 3).
         """
-
+        fit_params = []
         for layer_idx, (layer_data, bin_edges) in enumerate(zip(weight_distributions, bin_edges_list)):
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             num_neurons, num_from_weights, _ = layer_data.shape
@@ -293,7 +295,7 @@ class nn_analyser():
                         ]
                         try:
                             #fitting
-                            popt, _ = curve_fit(gaussian, bin_centers, weight_distribution, p0=initial_guess)
+                            popt, _ = curve_fit(self.gaussian, bin_centers, weight_distribution, p0=initial_guess)
                         except RuntimeError:
                             print(f"Error - curve_fit failed for layer {layer_idx}, neuron {neuron_idx}, from_weight {from_weight_idx}")
                             popt = initial_guess
@@ -303,7 +305,7 @@ class nn_analyser():
             fit_params.append(layer_fit_params)
         return fit_params
 
-    def plot_weight_bins_with_fit(weight_distributions, bin_edges, fit_params, layer, weight_position):
+    def plot_weight_bins_with_fit(self, weight_distributions, bin_edges, fit_params, layer, weight_position):
         """
         Plot the histogram of weights and the fitted Gaussian curve.
 
@@ -328,7 +330,7 @@ class nn_analyser():
 
 
         x_fit = np.linspace(bin_edges[0], bin_edges[-1], 1000)
-        y_fit = gaussian(x_fit, *fit_params_for_weight)
+        y_fit = self.gaussian(x_fit, *fit_params_for_weight)
 
         plt.figure(figsize=(10, 6))
         plt.bar(bin_centers, weight_distribution, width=np.diff(bin_edges), align='center',
@@ -342,20 +344,9 @@ class nn_analyser():
         plt.tight_layout()
         plt.show()
 
-    def fit():
-        fit_params = fit_gaussians_to_weight_distributions(
-        normalized_distributions, bin_edges_list=layer_bin_ranges
-    )
-
-    print(fit_params[1][4][4])
-
-    plot_weight_bins_with_fit(
-        normalized_distributions, bin_edges=layer_bin_ranges[1],
-        fit_params=fit_params, layer=1, weight_position=(4, 1)
-    )
-    plot_weight_bins_with_fit(
-        normalized_distributions, bin_edges=layer_bin_ranges[1],
-        fit_params=fit_params, layer=1, weight_position=(4, 0)
+    def fit(self):
+        fit_params = self.fit_gaussians_to_weight_distributions(
+        self.normalized_distributions, bin_edges_list=self.layer_bin_ranges
     )
 
     def fit_gmm_to_weight_distributions(weight_distributions, bin_edges_list, peaks_per_layer, random_state=None, replicate_factor=1000):
@@ -423,7 +414,7 @@ class nn_analyser():
 
         return gmm_models
 
-    def plot_weight_bins_with_gmm(weight_distributions, bin_edges_list, gmm_models, layer, weight_position,
+    def plot_weight_bins_with_gmm(self, weight_distributions, bin_edges_list, gmm_models, layer, weight_position,
                                 scale_to_hist=True, show_individual=True):
         """
         Plot the histogram of weights and the fitted GMM for a specified (layer, neuron_idx, from_weight_idx).
@@ -474,23 +465,23 @@ class nn_analyser():
         plt.show()
 
 
-    def sk_gaussian():
+    def sk_gaussian(self):
         peaks_per_layer = [3, 2, 3]
-        gmm_models = fit_gmm_to_weight_distributions(
-            weight_distributions=normalized_distributions,
-            bin_edges_list=layer_bin_ranges,
+        gmm_models = self.fit_gmm_to_weight_distributions(
+            weight_distributions=self.normalized_distributions,
+            bin_edges_list=self.layer_bin_ranges,
             peaks_per_layer=peaks_per_layer,
             random_state=42
         )
 
         layer_to_plot = 0
-        num_neurons, num_from_weights, _ = normalized_distributions[layer_to_plot].shape
+        num_neurons, num_from_weights, _ =  self.normalized_distributions[layer_to_plot].shape
 
         for i in range(num_neurons):
             for j in range(num_from_weights):
-                plot_weight_bins_with_gmm(
-                    weight_distributions=normalized_distributions,
-                    bin_edges_list=layer_bin_ranges,
+                self.plot_weight_bins_with_gmm(
+                    weight_distributions=self.normalized_distributions,
+                    bin_edges_list=self.layer_bin_ranges,
                     gmm_models=gmm_models,
                     layer=layer_to_plot,
                     weight_position=(i, j),
@@ -499,20 +490,20 @@ class nn_analyser():
                 )
 
 
-    def compute_kl_divergence_gaussians(mu1, sigma1, mu2, sigma2):
+    def compute_kl_divergence_gaussians(self, mu1, sigma1, mu2, sigma2):
         sigma1_adj = max(sigma1, 1e-8)
         sigma2_adj = max(sigma2, 1e-8)
         kl_divergence = np.log(sigma2_adj / sigma1_adj) + \
             (sigma1_adj ** 2 + (mu1 - mu2) ** 2) / (2 * sigma2_adj ** 2) - 0.5
         return kl_divergence
 
-    def compute_cross_entropy_gaussians(mu1, sigma1, mu2, sigma2):
+    def compute_cross_entropy_gaussians(self, mu1, sigma1, mu2, sigma2):
         sigma2_adj = max(sigma2, 1e-8)
         cross_entropy = 0.5 * np.log(2 * np.pi * sigma2_adj ** 2) + \
             ((sigma1 ** 2 + (mu1 - mu2) ** 2) / (2 * sigma2_adj ** 2))
         return cross_entropy
 
-    def cluster_gaussians_by_kl_divergence(fit_params, threshold):
+    def cluster_gaussians_by_kl_divergence(self, fit_params, threshold):
         """
         Cluster Gaussians within each layer based on KL divergence.
 
@@ -542,7 +533,7 @@ class nn_analyser():
                 mu1, sigma1 = mu_sigma_list[idx1]
                 for idx2 in range(idx1 + 1, total_gaussians):
                     mu2, sigma2 = mu_sigma_list[idx2]
-                    kl = compute_kl_divergence_gaussians(mu1, sigma1, mu2, sigma2)
+                    kl = self.compute_kl_divergence_gaussians(mu1, sigma1, mu2, sigma2)
                     kl_matrix[idx1, idx2] = kl
                     kl_matrix[idx2, idx1] = kl 
 
@@ -570,7 +561,7 @@ class nn_analyser():
 
         return cluster_indices_list
 
-    def cluster_gaussians_by_cross_entropy(fit_params, threshold):
+    def cluster_gaussians_by_cross_entropy(self, fit_params, threshold):
         """
         Cluster Gaussians within each layer based on cross-entropy.
 
@@ -598,7 +589,7 @@ class nn_analyser():
                 mu1, sigma1 = mu_sigma_list[idx1]
                 for idx2 in range(idx1 + 1, total_gaussians):
                     mu2, sigma2 = mu_sigma_list[idx2]
-                    ce = compute_cross_entropy_gaussians(mu1, sigma1, mu2, sigma2)
+                    ce = self.compute_cross_entropy_gaussians(mu1, sigma1, mu2, sigma2)
                     ce_matrix[idx1, idx2] = ce
                     ce_matrix[idx2, idx1] = ce
 
@@ -625,19 +616,19 @@ class nn_analyser():
         return cluster_indices_list
 
 
-    def kl_cl_indices():
+    def kl_cl_indices(self):
         kl_threshold = 0.001
         ce_threshold = 0.555
 
-        kl_indices = cluster_gaussians_by_kl_divergence(fit_params=fit_params, threshold=kl_threshold)
+        kl_indices = self.cluster_gaussians_by_kl_divergence(fit_params=self.fit_params, threshold=kl_threshold)
         print(kl_indices)
 
-        ce_indices = cluster_gaussians_by_cross_entropy(fit_params=fit_params, threshold=ce_threshold)
+        ce_indices = self.cluster_gaussians_by_cross_entropy(fit_params=self.fit_params, threshold=ce_threshold)
         print(ce_indices)
                 
 
 
-    def plot_unique_distributions(indices, layer, normalized_distributions, all_bin_edges, fit_params):
+    def plot_unique_distributions(self, indices, layer, normalized_distributions, all_bin_edges, fit_params):
         """
         Plot unique distributions for a specified layer based on cluster indices.
 
@@ -668,12 +659,8 @@ class nn_analyser():
         for i, unique_distribution_neuron_indices in enumerate(layer_indices):
             for j, unique_distribution_index in enumerate(unique_distribution_neuron_indices):
                 if unique_distribution_index not in seen_indices:
-                    plot_weight_bins_with_fit(
-                        normalized_distributions, layer_bin_ranges[layer], 
+                    self.plot_weight_bins_with_fit(
+                        normalized_distributions, self.layer_bin_ranges[layer], 
                         fit_params=fit_params, layer=layer, weight_position=(i, j)
                     )
                     seen_indices.add(unique_distribution_index)
-                    
-        plot_unique_distributions(kl_indices, 0, normalized_distributions, layer_bin_ranges, fit_params)
-        plot_unique_distributions(kl_indices, 1, normalized_distributions, layer_bin_ranges, fit_params)
-        plot_unique_distributions(kl_indices, 2, normalized_distributions, layer_bin_ranges, fit_params)

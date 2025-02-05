@@ -7,7 +7,7 @@ setup(
     name="nnanalyzer",
     version="0.1.0",
     description="A series of tools created to analyze neural networks ",
-    package_dir={"":"src"},
+    package_dir={"":"app"},
     packages=find_packages(where="ap"),
     long_description=long_description,
     long_description_content_type="text/markdown",
