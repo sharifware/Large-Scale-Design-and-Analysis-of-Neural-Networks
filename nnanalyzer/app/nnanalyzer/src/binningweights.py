@@ -8,7 +8,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-#from largerNetArchitecture import SimpleNet
 from scipy.stats import norm
 from scipy.optimize import curve_fit
 from sklearn.mixture import GaussianMixture
@@ -18,14 +17,23 @@ from scipy.stats import norm
 
 class WeightBinning():
 
-    def set_directory(self, directory):
+    def __init__(self, directory, architecture):
+        
+        self.NUM_BINS = 30
         self.directory = directory
+        self.architecture = architecture
+        self.load_models()
+      #  self.store_weights()
+       # self.populate_bins()
+        
+       
 
     def load_models(self):
+
     # Load models into a dictionary
         # Path to the directory containing the saved networks
-        #directory = "/Users/dani/Documents/GitHub/Large-Scale-Design-and-Analysis-of-Neural-Networks/Working Networks"
-        #directory = "working_networks"
+   #     directory = "/Users/dani/Documents/GitHub/Large-Scale-Design-and-Analysis-of-Neural-Networks/Working Networks"
+   
 
         # List all model files in the directory (assuming .pt or .pth extensions)
         model_files = [f for f in os.listdir(self.directory) if f.endswith('.pt') or f.endswith('.pth')]
@@ -35,33 +43,30 @@ class WeightBinning():
         for model_file in model_files:
             model_path = os.path.join(self.directory, model_file)
             model_name = os.path.splitext(model_file)[0]  # Use the file name (without extension) as the key
-            models[model_name] = torch.load(model_path)
+            models[model_name] = torch.load(model_path, weights_only=True)
 
         # Print the loaded models (or access them by name)
         for name, model in models.items():
             print(f"Loaded model: {name}")
             print(model)
         
-
-        
-    def bin(self, network):
-        self.NUM_BINS = 30
-
         working_networks_path = "./working_networks.pt"
         broken_networks_path = "BrokenNetworks/broken_networks.pt"
 
         #Load in the networks
-        loaded_state_dict = torch.load(working_networks_path)
+        loaded_state_dict = torch.load(working_networks_path, weights_only=True)
 
         #create new instantiations to contain the saved networks
         num_networks = len(loaded_state_dict)
         self.networks = []
         for n in range(num_networks):
-            self.networks.append(SimpleNet())
+            self.networks.append(self.architecture())
 
         for i, network in enumerate(self.networks):
             state_dict_key = f'network_{i+1}'
             network.load_state_dict(loaded_state_dict[state_dict_key])
+
+        return self.networks
 
     ##Get min and max weight values in each layer of the networks
 
@@ -91,6 +96,7 @@ class WeightBinning():
             return max(weights) + 1e-6
 
     def store_weights(self):
+        print("Str")
 
         #for each fully connected layer, create matrix of shape (N, M, B) where
         #N = num neurons in layer
@@ -131,8 +137,6 @@ class WeightBinning():
         #print the first weight of the first fully connected layer of the first network
         print(self.network_weights)
 
-    def populate_bins(self):
-
         for layer_num, layer_distribution in enumerate(self.layer_weight_distributions):
             #iterate over neurons in layer
             for i in range(layer_distribution.shape[0]):  
@@ -150,6 +154,8 @@ class WeightBinning():
                         self.layer_weight_distributions[layer_num][i][j][corresponding_bin] += 1
                         print(self.layer_weight_distributions[0].shape)
                         print(self.layer_weight_distributions[0])
+
+        return self.layer_weight_distributions, self.layer_bin_ranges
 
 
     def plot_weight_bins(self, weight_distributions, layer, weight_position, bin_edges):
@@ -202,7 +208,7 @@ class WeightBinning():
         # print(normalized_counts[0])
 
         print(self.layer_bin_ranges[0])
-        # print(normalized_counts[0])
+        return self.normalized_distributions
 
     def normal_pdf(x, mu, sigma, amplitude):
         return amplitude * norm.pdf(x, mu, sigma)
@@ -280,7 +286,7 @@ class WeightBinning():
         - fit_params: List of fit parameters, mirroring the structure of weight_distributions.
                     Each layer's fit parameters are stored as a NumPy array (neuron, incoming weight, 3).
         """
-        fit_params = []
+        self.fit_params = []
         for layer_idx, (layer_data, bin_edges) in enumerate(zip(weight_distributions, bin_edges_list)):
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             num_neurons, num_from_weights, _ = layer_data.shape
@@ -305,8 +311,8 @@ class WeightBinning():
                     else:
                         popt = [0, 0, 0]
                     layer_fit_params[neuron_idx, from_weight_idx, :] = popt
-            fit_params.append(layer_fit_params)
-        return fit_params
+            self.fit_params.append(layer_fit_params)
+        return self.fit_params
 
     def plot_weight_bins_with_fit(self, weight_distributions, bin_edges, fit_params, layer, weight_position):
         """
@@ -619,15 +625,16 @@ class WeightBinning():
         return cluster_indices_list
 
 
-    def kl_cl_indices(self):
+    def kl_ce_indices(self):
         kl_threshold = 0.001
         ce_threshold = 0.555
 
         kl_indices = self.cluster_gaussians_by_kl_divergence(fit_params=self.fit_params, threshold=kl_threshold)
-        print(kl_indices)
+        #print(kl_indices)
 
         ce_indices = self.cluster_gaussians_by_cross_entropy(fit_params=self.fit_params, threshold=ce_threshold)
-        print(ce_indices)
+        #print(ce_indices)
+        return kl_indices, ce_indices
                 
 
 

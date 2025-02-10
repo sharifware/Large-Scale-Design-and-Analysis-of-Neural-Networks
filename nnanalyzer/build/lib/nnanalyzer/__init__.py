@@ -1,5 +1,5 @@
 from .src.binningweights import(
-    WeightBinning,
+    WeightBinning
 )
 
 from .src.NetworkAnalyzer import(
