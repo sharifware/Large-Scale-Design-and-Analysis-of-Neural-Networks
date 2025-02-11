@@ -17,10 +17,10 @@ from scipy.stats import norm
 
 class WeightBinning():
 
-    def __init__(self, directory, architecture):
+    def __init__(self, architecture):
         
         self.NUM_BINS = 30
-        self.directory = directory
+        self.directory = "./WorkingNetworks"
         self.architecture = architecture
         self.load_models()
       #  self.store_weights()
@@ -48,10 +48,10 @@ class WeightBinning():
         # Print the loaded models (or access them by name)
         for name, model in models.items():
             print(f"Loaded model: {name}")
-            print(model)
+            #print(model)
         
-        working_networks_path = "./working_networks.pt"
-        broken_networks_path = "BrokenNetworks/broken_networks.pt"
+        working_networks_path = "./WorkingNetworks/working_networks.pt"
+        broken_networks_path = "./BrokenNetworks/broken_networks.pt"
 
         #Load in the networks
         loaded_state_dict = torch.load(working_networks_path, weights_only=True)
@@ -66,6 +66,7 @@ class WeightBinning():
             state_dict_key = f'network_{i+1}'
             network.load_state_dict(loaded_state_dict[state_dict_key])
 
+        print(len(self.networks))
         return self.networks
 
     ##Get min and max weight values in each layer of the networks
@@ -96,8 +97,7 @@ class WeightBinning():
             return max(weights) + 1e-6
 
     def store_weights(self):
-        print("Str")
-
+       
         #for each fully connected layer, create matrix of shape (N, M, B) where
         #N = num neurons in layer
         #M = num neurons in previous layer
@@ -132,10 +132,10 @@ class WeightBinning():
                 network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
             self.network_weights.append(network_weights_per_layer)
 
-        # print(layer_weight_distributions[0].shape)
-        print(self.layer_bin_ranges)
+        #print(self.layer_weight_distributions[0].shape)
+        #print(self.layer_bin_ranges)
         #print the first weight of the first fully connected layer of the first network
-        print(self.network_weights)
+        #print(self.network_weights)
 
         for layer_num, layer_distribution in enumerate(self.layer_weight_distributions):
             #iterate over neurons in layer
@@ -149,11 +149,11 @@ class WeightBinning():
                         corresponding_bin = np.digitize(weight, self.layer_bin_ranges[layer_num], right=False) - 1
                         if corresponding_bin >= self.NUM_BINS or corresponding_bin < 0:
                             print(weight)
-                            print(corresponding_bin)
+                            #print(corresponding_bin)
                         
                         self.layer_weight_distributions[layer_num][i][j][corresponding_bin] += 1
-                        print(self.layer_weight_distributions[0].shape)
-                        print(self.layer_weight_distributions[0])
+                        #print(self.layer_weight_distributions[0].shape)
+                        #print(self.layer_weight_distributions[0])
 
         return self.layer_weight_distributions, self.layer_bin_ranges
 
@@ -184,7 +184,7 @@ class WeightBinning():
             plt.show()
 
             # neuron 10 in layer 1(0) coming from input neuron 2
-            print(self.layer_bin_ranges)
+            #print(self.layer_bin_ranges)
             #currently bin_edges are global and aren't specific to each layer
             # plot_weight_bins(self.layer_weight_distributions, layer=0, weight_position=(0, 0), bin_edges=self.layer_bin_ranges[0])
 
@@ -250,17 +250,17 @@ class WeightBinning():
             max_val_layer = np.max(layer_bin_ranges[layer_index])
 
             bin_centers = (layer_bin_ranges[layer_index][:-1] + layer_bin_ranges[layer_index][1:]) / 2
-            print(np.max(counts))
+            #print(np.max(counts))
 
             initial = [np.mean(bin_centers), np.std(bin_centers), np.max(counts)]
 
             fits, covariance = curve_fit(self.normal_pdf, bin_centers, counts, p0=initial)
 
             mu_fit, sigma_fit, amplitude_fit = fits
-            print(f"Fitted parameters:\nMu = {mu_fit}\nSigma = {sigma_fit}\nAmplitude = {amplitude_fit}")
+            #print(f"Fitted parameters:\nMu = {mu_fit}\nSigma = {sigma_fit}\nAmplitude = {amplitude_fit}")
 
             y_fit = self.normal_pdf(bin_centers, mu_fit, sigma_fit, amplitude_fit)
-            print(y_fit)
+            #print(y_fit)
 
             fig, ax = self.return_weight_bins_plot(layer_weight_distributions, layer_index, (0, 0), layer_bin_ranges[layer_index])
 
@@ -306,7 +306,7 @@ class WeightBinning():
                             #fitting
                             popt, _ = curve_fit(self.gaussian, bin_centers, weight_distribution, p0=initial_guess)
                         except RuntimeError:
-                            print(f"Error - curve_fit failed for layer {layer_idx}, neuron {neuron_idx}, from_weight {from_weight_idx}")
+                            #print(f"Error - curve_fit failed for layer {layer_idx}, neuron {neuron_idx}, from_weight {from_weight_idx}")
                             popt = initial_guess
                     else:
                         popt = [0, 0, 0]
