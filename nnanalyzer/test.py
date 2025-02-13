@@ -1,9 +1,5 @@
 from nnanalyzer import WeightBinning, NetworkAnalyzer
-from standardRegArchitercture import SimpleNet
 import torch
-from torch.utils.data import DataLoader
-import torch
-from largerNetArchitecture import LargerNet
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 import pandas as pd
@@ -43,13 +39,14 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 loss_fn = MSELoss()
-networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=2000, success_loss=0.1, convergence_threshold=1, max_attempts=10)
-networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.05)
+networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=1000, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
+networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.1)
 
 
-analyzer = WeightBinning(architecture=SimpleNet)
+save_dir = "./Histograms"
+analyzer = WeightBinning(architecture=SimpleNet, save_dir)
 #networks = NetworkAnalyzer()
-save_dir = "directory here"
+
 
 
 
