@@ -17,9 +17,13 @@ from scipy.stats import norm
 
 class WeightBinning():
 
-    def __init__(self, architecture):
+    def __init__(self, architecture, save_dir):
+
+
         
+        os.makedirs(save_dir, exist_ok=True) 
         self.NUM_BINS = 30
+        self.save_dir = save_dir
         self.directory = "./WorkingNetworks"
         self.architecture = architecture
         self.load_models()
@@ -181,7 +185,8 @@ class WeightBinning():
             plt.xticks(range(num_bins), bin_labels, rotation=45, ha='right')  # Rotate for readability
             plt.grid(axis='y', linestyle='--', alpha=0.7)
             plt.tight_layout()  # Adjust layout to prevent label cut-off
-            plt.show()
+            #plt.show()
+            plt.savefig(self.save_dir+ "/weight_plot_"+"layer:"+ str(layer) +"_position:"+str(weight_position))
 
             # neuron 10 in layer 1(0) coming from input neuron 2
             #print(self.layer_bin_ranges)
@@ -267,7 +272,8 @@ class WeightBinning():
             ax.plot(bin_centers, y_fit, color='red', linewidth=2, label='Fitted Normal Distribution')
 
             ax.legend()
-            plt.show()
+            #plt.show()
+            plt.savefig(self.save_dir+"/index_plot")
 
 
     def gaussian(self,  x, A, mu, sigma):
@@ -351,7 +357,10 @@ class WeightBinning():
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.show()
+        #plt.show()
+        count = 0
+        plt.savefig(self.save_dir+"/weights_with_bin_"+"layer:"+str(layer)+"_position"+str(weight_position))
+
 
     def fit(self):
         fit_params = self.fit_gaussians_to_weight_distributions(
@@ -471,7 +480,8 @@ class WeightBinning():
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.show()
+        ##plt.show()
+        plt.savefig(self.save_dir+"/gmm_plot")
 
 
     def sk_gaussian(self):
@@ -665,7 +675,6 @@ class WeightBinning():
         layer_indices = indices[layer]
 
         seen_indices = set()
-
         for i, unique_distribution_neuron_indices in enumerate(layer_indices):
             for j, unique_distribution_index in enumerate(unique_distribution_neuron_indices):
                 if unique_distribution_index not in seen_indices:

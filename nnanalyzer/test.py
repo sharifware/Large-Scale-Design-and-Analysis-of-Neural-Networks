@@ -39,12 +39,12 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 loss_fn = MSELoss()
-networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=1000, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
+networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=30, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
 networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.1)
 
 
 save_dir = "./Histograms"
-analyzer = WeightBinning(architecture=SimpleNet, save_dir)
+analyzer = WeightBinning(architecture=SimpleNet, save_dir = save_dir)
 #networks = NetworkAnalyzer()
 
 
