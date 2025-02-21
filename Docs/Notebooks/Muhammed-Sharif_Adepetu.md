@@ -46,6 +46,38 @@
 - Updated the PowerPoint to include additional testing data and a clearer breakdown of the project's contributions.  
 
 # 12/2/2024  
-- Woekd on final project presenation. added design considerations and subsystem design slides.  
+- Woekd on final project presenation. added design considerations and subsystem design slides.
+
+# 01/09/20245 
+-Reviewed weight binning notebook
+-Begun transforming notebooks into scripts.
+
+# 01/23/2025  
+- Watched tutorial on package creation
+- Set up directory to make package
+
+# 01/28/2024  
+- Finalized scripts and writing methods for each 
+  
+# 02/04/2024  
+- Re-Structured Project files to comply with standard practices
+- Updated setup.py file for package 
+
+# 02/05/2025
+- Cleaned directory. improved initialization 
+- Edit, src, buld and dist files to include propper files
+
+# 02/10/2025  
+- Added proper path information to class body and tested plotting
+
+ # 02/11/2025  
+- Verified Network generation worked within package.
+
+  # 02/18/2025
+- Corrected save directory location.
+- uploaded pacakge to piPY
+
+  # 02/20/2025
+- Fixed bug that occured when group member tried installing pacakge from piPY
 
  
