@@ -56,15 +56,16 @@
 - Watched tutorial on package creation
 - Set up directory to make package
 
-# 01/28/2024  
+# 01/28/2025
 - Finalized scripts and writing methods for each 
   
-# 02/04/2024  
+# 02/04/2025  
 - Re-Structured Project files to comply with standard practices
-- Updated setup.py file for package 
+- Updated setup.py file for package
+- Wrote LICENCE.txt file
 
 # 02/05/2025
-- Cleaned directory. improved initialization 
+- Cleaned directory. changed initialization method to include
 - Edit, src, buld and dist files to include propper files
 
 # 02/10/2025  
