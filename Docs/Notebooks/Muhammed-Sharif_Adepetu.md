@@ -48,16 +48,16 @@
 # 12/2/2024  
 - Woekd on final project presenation. added design considerations and subsystem design slides.
 
-# 01/09/20245 
--Reviewed weight binning notebook
--Begun transforming notebooks into scripts.
+# 01/09/2025 
+-Reviewed weight binning notebook, making modifications to the program and dividing different parts into methods that the user will be able to utilize. 
+-Begun transforming other notebooks into scripts.
 
 # 01/23/2025  
 - Watched tutorial on package creation
-- Set up directory to make package
+- Set up directory to make package. 
 
 # 01/28/2025
-- Finalized scripts and writing methods for each 
+- Finalized scripts from notebooks. begun writing a test file that will test the main functionality of both network generation and weight binning modules.
   
 # 02/04/2025  
 - Re-Structured Project files to comply with standard practices
@@ -79,6 +79,6 @@
 - uploaded pacakge to piPY
 
   # 02/20/2025
-- Fixed bug that occured when group member tried installing pacakge from piPY
+- Fixed bug that occured when user tried installing pacakge from piPY
 
  
