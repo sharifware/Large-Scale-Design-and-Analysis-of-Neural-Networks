@@ -58,6 +58,9 @@
 
 # 01/28/2025
 - Finalized scripts from notebooks. begun writing a test file that will test the main functionality of both network generation and weight binning modules.
+
+# 02/03/2025
+- Wrote multiple sections of SRS 
   
 # 02/04/2025  
 - Re-Structured Project files to comply with standard practices
@@ -65,14 +68,16 @@
 - Wrote LICENCE.txt file
 
 # 02/05/2025
-- Cleaned directory. changed initialization method to include
+- Included tested network analyzer file and verified the output.
+- Cleaned directory. changed initialization method to include architecture type and access the networks that have been created from NetworkANalyser
 - Edit, src, buld and dist files to include propper files
 
 # 02/10/2025  
 - Added proper path information to class body and tested plotting
 
 # 02/11/2025  
-- Verified Network generation worked within package.
+- Verified Network generation and histogram saving modules worked within package.
+- investigated why the network generation performance was poor under certain conditions
 
 # 02/18/2025
 - Corrected save directory location.
