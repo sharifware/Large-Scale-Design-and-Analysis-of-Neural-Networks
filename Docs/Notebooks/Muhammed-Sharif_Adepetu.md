@@ -46,7 +46,7 @@
 - Updated the PowerPoint to include additional testing data and a clearer breakdown of the project's contributions.  
 
 # 12/2/2024  
-- Woekd on final project presenation. added design considerations and subsystem design slides.
+- Worked on final project presenation. added design considerations and subsystem design slides.
 
 # 01/09/2025 
 -Reviewed weight binning notebook, making modifications to the program and dividing different parts into methods that the user will be able to utilize. 
