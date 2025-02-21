@@ -71,14 +71,14 @@
 # 02/10/2025  
 - Added proper path information to class body and tested plotting
 
- # 02/11/2025  
+# 02/11/2025  
 - Verified Network generation worked within package.
 
-  # 02/18/2025
+# 02/18/2025
 - Corrected save directory location.
 - uploaded pacakge to piPY
 
-  # 02/20/2025
+# 02/20/2025
 - Fixed bug that occured when user tried installing pacakge from piPY
 
  
