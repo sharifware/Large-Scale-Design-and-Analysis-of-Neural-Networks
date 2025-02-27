@@ -68,7 +68,7 @@ for net_name, state_dict in networks_state_dicts.items():
     mse_list.append(mse)
     mae_list.append(mae)
     r2_list.append(r2)
-    print(f"{net_name}: MSE = {mse:.4f}, MAE = {mae:.4f}, R2 = {r2:.4f}")
+    # print(f"{net_name}: MSE = {mse:.4f}, MAE = {mae:.4f}, R2 = {r2:.4f}")
 
 print("\nSummary Metrics Across Networks:")
 print(f"Average MSE: {np.mean(mse_list):.4f} ± {np.std(mse_list):.4f}")
