@@ -166,5 +166,16 @@ if __name__ == '__main__':
     )
 
     os.makedirs("WorkingNetworks", exist_ok=True)
-    torch.save(networks_state_dicts, "WorkingNetworks/working_networks.pt")
+    networks_path = "WorkingNetworks/working_networks.pt"
+    if os.path.exists(networks_path):
+        existing_networks = torch.load(networks_path)
+        # Get the highest numbered network
+        max_num = max(int(name.split('_')[1]) for name in existing_networks.keys())
+        # Rename new networks to continue the sequence
+        renamed_networks = {f'network_{i+max_num+1}': state_dict 
+                          for i, (_, state_dict) in enumerate(networks_state_dicts.items())}
+        existing_networks.update(renamed_networks)
+        torch.save(existing_networks, networks_path)
+    else:
+        torch.save(networks_state_dicts, networks_path)
     print("Training complete. Saved all networks.")
