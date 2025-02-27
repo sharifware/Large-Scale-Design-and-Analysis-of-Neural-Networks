@@ -1,0 +1,7 @@
+matplotlib
+torch
+pandas
+numpy
+scikit-learn
+regex
+scipy
