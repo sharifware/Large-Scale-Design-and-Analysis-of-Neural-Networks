@@ -40,6 +40,8 @@ class NetworkAnalyzer:
         self.working_networks = {}
         self.broken_networks = {}
 
+        print("Beginning Training...")
+
         # Set up directories
         if not os.path.exists(self.working_dir):
             os.makedirs(self.working_dir)  # Create directory if it doesn't exist

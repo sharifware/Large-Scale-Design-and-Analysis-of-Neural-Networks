@@ -5,7 +5,7 @@ with open("Readme.md","r") as f:
 
 setup(
     name="nnanalyzer",
-    version="0.1.1",
+    version="0.1.21",
     description="A series of tools created to analyze neural networks ",
     package_dir={"":"app"},
     packages=find_packages(where="app"),
@@ -13,7 +13,6 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/sharifware/Large-Scale-Design-and-Analysis-of-Neural-Networks",
     author="ERAU Large Scale Design & Analysis of Neural Networks",
-    install_requires=["matplotlib", "torch", "pandas", "numpy", "scikit-learn", "regex",
-                      "scipy"],
+    install_requires=["matplotlib", "torch", "pandas", "numpy", "scikit-learn", "scipy"],
     python_requires=">3.8",
 )

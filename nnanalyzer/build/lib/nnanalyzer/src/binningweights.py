@@ -1,6 +1,4 @@
-import importlib.util
 import os 
-from dotenv import load_dotenv
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -19,7 +17,12 @@ class WeightBinning():
 
     def __init__(self, architecture, save_dir):
 
-
+        """
+        Initializing Class 
+        Parameters:
+        - architectue: rchitecture used for training networks
+        - save_dir: location to save images of histograms
+        """
         
         os.makedirs(save_dir, exist_ok=True) 
         self.NUM_BINS = 30
@@ -36,7 +39,7 @@ class WeightBinning():
 
     # Load models into a dictionary
         # Path to the directory containing the saved networks
-   #     directory = "/Users/dani/Documents/GitHub/Large-Scale-Design-and-Analysis-of-Neural-Networks/Working Networks"
+   #     
    
 
         # List all model files in the directory (assuming .pt or .pth extensions)
@@ -186,16 +189,19 @@ class WeightBinning():
             plt.grid(axis='y', linestyle='--', alpha=0.7)
             plt.tight_layout()  # Adjust layout to prevent label cut-off
             #plt.show()
-            plt.savefig(self.save_dir+ "/weight_plot_"+"layer:"+ str(layer) +"_position:"+str(weight_position))
+            plt.savefig(self.save_dir+ "/weight_plot_"+"layer_"+ str(layer) +"_position:"+str(weight_position))
 
             # neuron 10 in layer 1(0) coming from input neuron 2
             #print(self.layer_bin_ranges)
             #currently bin_edges are global and aren't specific to each layer
             # plot_weight_bins(self.layer_weight_distributions, layer=0, weight_position=(0, 0), bin_edges=self.layer_bin_ranges[0])
 
-    def normalize_distributions(self):
+    def normalize_distributions(self, layer_weight_distributions):
+        '''
+        normalizes the distributions of stored weights
+        '''
         self.normalized_distributions = []
-        for layer in self.layer_weight_distributions:
+        for layer in layer_weight_distributions:
             layer_counts = []
             for neuron in layer:
                 neuron_counts = []
@@ -364,7 +370,8 @@ class WeightBinning():
 
     def fit(self):
         fit_params = self.fit_gaussians_to_weight_distributions(
-        self.normalized_distributions, bin_edges_list=self.layer_bin_ranges
+        self.normalized_distributions, bin_edges_list=self.layer_bin_ranges)
+        return fit_params
     )
 
     def fit_gmm_to_weight_distributions(weight_distributions, bin_edges_list, peaks_per_layer, random_state=None, replicate_factor=1000):
