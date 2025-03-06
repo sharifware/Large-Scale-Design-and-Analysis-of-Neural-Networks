@@ -369,7 +369,7 @@ class WeightBinning():
         """
         gmm_models = []
 
-        for layer_idx, (layer_data, bin_edges) in enumerate(zip(weight_distributions, bin_edges_list)):
+        for layer_idx, (layer_data, bin_edges) in enumerate(zip(weight_distributions,bin_edges_list)):
             n_components = peaks_per_layer[layer_idx]
             num_neurons, num_from_weights, num_bins = layer_data.shape
             layer_models = np.empty((num_neurons, num_from_weights), dtype=object)
@@ -625,7 +625,7 @@ class WeightBinning():
                 
 
 
-    def plot_unique_distributions(self, indices, layer, normalized_distributions, all_bin_edges, fit_params):
+    def plot_unique_distributions(self, indices, layer, normalized_distributions, fit_params):
         """
         Plot unique distributions for a specified layer based on cluster indices.
 
@@ -660,3 +660,30 @@ class WeightBinning():
                         fit_params=fit_params, layer=layer, weight_position=(i, j)
                     )
                     seen_indices.add(unique_distribution_index)
+
+    
+    def save_normalized_distributions(self):
+        """
+        Saves the normalized_distributions array as a .npy file in the specified directory.
+        """
+        save_dir="./outputs"
+        normalized_distributions = self.normalized_distributions
+
+        os.makedirs(save_dir, exist_ok=True)
+        
+        save_path = os.path.join(save_dir, "normalized_distributions.npy")
+        
+        np.save(save_path, np.array(normalized_distributions, dtype=object), allow_pickle=True)
+        print(f"normalized_distributions saved to {save_path}")
+
+
+
+    def load_normalized_distributions(load_path="my_list_of_arrays.npy"):
+        """
+        Loads a .npy file that contains a Python list of NumPy arrays.
+        """
+        loaded_obj = np.load(load_path, allow_pickle=True)
+        #convert the loaded object back to a Python list
+        arr_list = loaded_obj.tolist()
+        print(f"Loaded list of arrays from: {load_path}")
+        return arr_list

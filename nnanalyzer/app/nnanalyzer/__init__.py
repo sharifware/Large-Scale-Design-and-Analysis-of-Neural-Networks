@@ -1,4 +1,4 @@
-from .src.binningweights import(
+from .src.BinningWeights import(
     WeightBinning
 )
 
