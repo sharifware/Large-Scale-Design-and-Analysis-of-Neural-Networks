@@ -208,8 +208,8 @@ class WeightBinning():
                 for from_weight in neuron:
                     #total should be num of networks
                     total = sum(from_weight)
-                    normalized_bin_counts = [bin_count / total for bin_count in from_weight]
-                    neuron_counts.append(np.array(normalized_bin_counts))
+                    self.normalized_counts = [bin_count / total for bin_count in from_weight]
+                    neuron_counts.append(np.array(self.normalized_counts))
                 layer_counts.append(np.array(neuron_counts))
             self.normalized_distributions.append(np.array(layer_counts))
 
@@ -219,7 +219,7 @@ class WeightBinning():
         # print(normalized_counts[0])
 
         print(self.layer_bin_ranges[0])
-        return self.normalized_distributions
+        return self.normalized_distributions, self.normalized_counts
 
     def normal_pdf(x, mu, sigma, amplitude):
         return amplitude * norm.pdf(x, mu, sigma)
@@ -250,36 +250,6 @@ class WeightBinning():
         
         return fig, ax
 
-
-
-    def plot_index(self, layer_weight_distributions, layer_bin_ranges):
-
-        for layer_index in range(len(layer_weight_distributions)):
-            counts = np.array(self.normalized_counts[layer_index])
-
-            min_val_layer = np.min(layer_bin_ranges[layer_index])
-            max_val_layer = np.max(layer_bin_ranges[layer_index])
-
-            bin_centers = (layer_bin_ranges[layer_index][:-1] + layer_bin_ranges[layer_index][1:]) / 2
-            #print(np.max(counts))
-
-            initial = [np.mean(bin_centers), np.std(bin_centers), np.max(counts)]
-
-            fits, covariance = curve_fit(self.normal_pdf, bin_centers, counts, p0=initial)
-
-            mu_fit, sigma_fit, amplitude_fit = fits
-            #print(f"Fitted parameters:\nMu = {mu_fit}\nSigma = {sigma_fit}\nAmplitude = {amplitude_fit}")
-
-            y_fit = self.normal_pdf(bin_centers, mu_fit, sigma_fit, amplitude_fit)
-            #print(y_fit)
-
-            fig, ax = self.return_weight_bins_plot(layer_weight_distributions, layer_index, (0, 0), layer_bin_ranges[layer_index])
-
-            ax.plot(bin_centers, y_fit, color='red', linewidth=2, label='Fitted Normal Distribution')
-
-            ax.legend()
-            #plt.show()
-            plt.savefig(self.save_dir+"/index_plot")
 
 
     def gaussian(self,  x, A, mu, sigma):
@@ -372,7 +342,7 @@ class WeightBinning():
         fit_params = self.fit_gaussians_to_weight_distributions(
         self.normalized_distributions, bin_edges_list=self.layer_bin_ranges)
         return fit_params
-    )
+    
 
     def fit_gmm_to_weight_distributions(weight_distributions, bin_edges_list, peaks_per_layer, random_state=None, replicate_factor=1000):
         """

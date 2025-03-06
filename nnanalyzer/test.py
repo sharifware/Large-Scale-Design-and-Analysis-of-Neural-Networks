@@ -47,8 +47,8 @@ loss_fn = MSELoss()
 save_dir = "./Histograms"
 
 #Create Network ananlyser object and generate networks
-networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=30, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
-networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.1)
+networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=5, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
+networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.05)
 
 
 #Create Weight binning object
@@ -74,25 +74,25 @@ layer_weight_distributions , layer_bin_ranges = analyzer.store_weights()
 this function plots the weight of a specific weight in a layer in the network using binned weights
 '''
 
-analyzer.plot_weight_bins(layer_weight_distributions , layer =0, Weight_position=(0,0), bin_edges = layer_bin_ranges[0])
+analyzer.plot_weight_bins(layer_weight_distributions , layer =0, weight_position=(0,0), bin_edges = layer_bin_ranges[0])
 
 '''
-If you woulf prefer to use normalized distributios for layer weight distributions use following function:
+If you would prefer to use normalized distributios and counts for layer weight distributions use following function:
 '''
 
-normalized_weight_distributions = analyzer.normalize_distributions(layer_weight_distributions)
+normalized_weight_distributions, normalized_counts = analyzer.normalize_distributions(layer_weight_distributions)
 
 '''
 The following functionn is used to pass the plot of the weght. does not save the plot
 '''
 
-analyzer.return_weight_bins_plot(layer_weight_distributions , layer =0, Weight_position=(0,0), bin_edges = layer_bin_ranges[0])
+analyzer.return_weight_bins_plot(layer_weight_distributions , layer =0, weight_position=(0,0), bin_edges = layer_bin_ranges[0])
 
 '''
 This function plots the index of networks
 '''
 
-analyzer.plot_index(layer_weight_distributions, layer_bin_ranges[0])
+#analyzer.plot_index(layer_weight_distributions, layer_bin_ranges)
 
 '''
 Fits Gaussian curves to all weight histograms and save the fit parameters.
@@ -103,20 +103,20 @@ gaussian_fit_params = analyzer.fit_gaussians_to_weight_distributions(layer_weigh
 '''
 Plot the histogram of weights and the fitted Gaussian curve. you must first call fit gaussians function first
 '''
-analyzer.plot_weight_bins_with_fit(layer_weight_distributions, layer_bin_ranges, gaussian_fit_params, layer=0, weight_position=(0,0))
+analyzer.plot_weight_bins_with_fit(layer_weight_distributions, bin_edges=layer_bin_ranges[0], fit_params=gaussian_fit_params, layer=0, weight_position=(0,0))
 
 '''
         Fits a Gaussian Mixture Model (GMM) to each layer's weight histogram
         by replicating bin_centers replicate_factor * normalized_count times (if > 0).
 
 '''
-gmm_models = analyzer.fit_gmm_to_weight_distributions(layer_weight_distributions, layer_bin_ranges,)
+gmm_models = analyzer.fit_gmm_to_weight_distributions(layer_weight_distributions, layer_bin_ranges, 1)
 
 '''
 Plot the histogram of weights and the fitted GMM for a specified (layer, neuron_idx, from_weight_idx).
 '''
 
-analyzer.plot_weight_bins_with_gmm(layer_weight_distributions, layer_bin_ranges, gmm_models, layer=0, weight_position=(0,0))
+analyzer.plot_weight_bins_with_gmm(layer_weight_distributions, bin_edges_list=layer_bin_ranges[0], gmm_models=gmm_models, layer=0, weight_position=(0,0))
 
 '''
 have fit params
@@ -132,8 +132,8 @@ analyzer.compute_kl_divergence_gaussians()
 analyzer.compute_cross_entropy_gaussians()
 
 
-analyzer.cluster_gaussians_by_kl_divergence(fit_params, )
-analyzer.cluster_gaussians_by_cross_entropy(fit_params, )
+#analyzer.cluster_gaussians_by_kl_divergence(fit_params, )
+#analyzer.cluster_gaussians_by_cross_entropy(fit_params, )
 
 '''
         Plot unique distributions for a specified layer based on cluster indices.
@@ -148,4 +148,4 @@ analyzer.cluster_gaussians_by_cross_entropy(fit_params, )
 '''
  
 
-analyzer.plot_unique_distributions()
+#analyzer.plot_unique_distributions()
