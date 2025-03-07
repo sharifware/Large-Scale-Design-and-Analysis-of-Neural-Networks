@@ -625,7 +625,7 @@ class WeightBinning():
                 
 
 
-    def plot_unique_distributions(self, indices, layer, normalized_distributions, fit_params):
+    def plot_unique_distributions(self, indices, layer, normalized_distributions, all_bin_edges, fit_params):
         """
         Plot unique distributions for a specified layer based on cluster indices.
 

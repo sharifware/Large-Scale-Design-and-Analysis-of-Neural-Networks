@@ -47,8 +47,8 @@ loss_fn = MSELoss()
 save_dir = "./Histograms"
 
 #Create Network ananlyser object and generate networks
-networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=1, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
-networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=20, loss_fn=loss_fn, learning_rate=0.05)
+networks = NetworkAnalyzer(model_architecture=SimpleNet, amount_to_produce=100, success_loss=0.3, convergence_threshold=(0.1), max_attempts=15)
+networks.generate_networks(train_loader=train_loader, test_loader=test_loader, num_epochs=200, loss_fn=loss_fn, learning_rate=0.05)
 
 
 #Create Weight binning object
@@ -163,5 +163,5 @@ print(ce_indices)
 '''
  
 
-analyzer.plot_unique_distributions(kl_indices, 0, normalized_weight_distributions, layer_bin_ranges, fit_params)
+analyzer.plot_unique_distributions(indices=kl_indices, layer=0, normalized_distributions=normalized_weight_distributions, all_bin_edges=layer_bin_ranges, fit_params=fit_params)
 
