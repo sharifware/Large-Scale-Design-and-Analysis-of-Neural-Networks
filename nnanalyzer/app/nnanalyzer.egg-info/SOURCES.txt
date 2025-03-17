@@ -1,8 +1,0 @@
-LICENCE
-setup.py
-app/nnanalyzer/__init__.py
-app/nnanalyzer.egg-info/PKG-INFO
-app/nnanalyzer.egg-info/SOURCES.txt
-app/nnanalyzer.egg-info/dependency_links.txt
-app/nnanalyzer.egg-info/requires.txt
-app/nnanalyzer.egg-info/top_level.txt
