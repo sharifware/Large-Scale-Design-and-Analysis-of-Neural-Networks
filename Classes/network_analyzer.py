@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 class NetworkAnalyzer:
 
-    def __init__(self, model_architecture: nn.Module, amount_to_produce: int, success_loss: float, convergence_threshold: float = None, max_attempts: float = None):
+    def __init__(self, model_architecture: nn.Module, amount_to_produce: int, success_loss: float, convergence_threshold: float = None, max_attempts: float = None, save_dir: str = "NetworkOutput"):
         """
         Initializes the NetworkAnalyzer class with the required model architecture and configuration.
 
@@ -19,6 +19,7 @@ class NetworkAnalyzer:
                                             of training to determine if the neural network has converged.
             max_attempts (float, optional): Maximum number of attempts to produce a successful network, defaults
                                             to 130% of `amount_to_produce` if not specified.
+            save_dir (str, optional): Directory where networks and metadata will be saved. Defaults to "NetworkOutput".
         """
         self.model_architecture = model_architecture
         self.amount_to_produce = amount_to_produce
@@ -34,19 +35,16 @@ class NetworkAnalyzer:
         self.train_loss_history = []
         self.test_loss_history = []
 
-        # Ensure directories for saving networks exist
-        self.working_dir = "WorkingNetworks"
-        self.broken_dir = "BrokenNetworks"
+        # Set up save directory
+        self.save_dir = save_dir
         self.working_networks = {}
         self.broken_networks = {}
 
         print("Initialized NetworkAnalyzer")
 
-        # Set up directories
-        if not os.path.exists(self.working_dir):
-            os.makedirs(self.working_dir)  # Create directory if it doesn't exist
-        if not os.path.exists(self.broken_dir):
-            os.makedirs(self.broken_dir)
+        # Create save directory if it doesn't exist
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
 
     def __default_success_criteria__(self):
         """
@@ -182,8 +180,23 @@ class NetworkAnalyzer:
         return device
     
     def __save_networks__(self):
-        torch.save(self.working_networks, f'{self.working_dir}/working_networks.pt')
-        torch.save(self.broken_networks, f'{self.broken_dir}/broken_networks.pt')
+        """
+        Saves working and broken networks, along with metadata to the specified save directory.
+        """
+        # Save networks
+        torch.save(self.working_networks, f'{self.save_dir}/working_networks.pt')
+        torch.save(self.broken_networks, f'{self.save_dir}/broken_networks.pt')
+        
+        # Save metadata
+        metadata = {
+            'success_loss_threshold': self.success_loss,
+            'amount_to_produce': self.amount_to_produce,
+            'num_epochs': self.num_epochs,
+            'learning_rate': self.learning_rate
+        }
+        torch.save(metadata, f'{self.save_dir}/metadata.pt')
+        
+        print(f"Saved networks and metadata to {self.save_dir}")
 
     def __visualize_loss__(self, train, test):
         """"
@@ -250,6 +263,9 @@ class NetworkAnalyzer:
             loss_fn (torch.nn.Module): The loss function to use during training.
             learning_rate(float): Learning Rate for the optimizer
         """
+        self.num_epochs = num_epochs
+        self.learning_rate = learning_rate
+
         # Get the device to run the network on
         device = self.__get_device__()
 
@@ -289,53 +305,53 @@ class NetworkAnalyzer:
         self.attempt = 0
         self.success_count = 0
     
-    def generate_networks_parallel(self, train_loader: DataLoader, test_loader: DataLoader, num_epochs: int, loss_fn: torch.nn.Module, learning_rate):
-        """
-        Generates multiple neural networks and trains them, *using GPU and in Parallel*, until a successful number of networks is produced,
-        based on the success criteria and the maximum number of allowed attempts.
+    # def generate_networks_parallel(self, train_loader: DataLoader, test_loader: DataLoader, num_epochs: int, loss_fn: torch.nn.Module, learning_rate):
+    #     """
+    #     Generates multiple neural networks and trains them, *using GPU and in Parallel*, until a successful number of networks is produced,
+    #     based on the success criteria and the maximum number of allowed attempts.
 
-        Args:
-            train_loader (DataLoader): The DataLoader for the training dataset.
-            test_loader (DataLoader): The DataLoader for the testing dataset (unused here but included for completeness).
-            num_epochs (int): The number of epochs for which each network should be trained.
-            loss_fn (torch.nn.Module): The loss function to use during training.
-        """
+    #     Args:
+    #         train_loader (DataLoader): The DataLoader for the training dataset.
+    #         test_loader (DataLoader): The DataLoader for the testing dataset (unused here but included for completeness).
+    #         num_epochs (int): The number of epochs for which each network should be trained.
+    #         loss_fn (torch.nn.Module): The loss function to use during training.
+    #     """
          
-        # Check for Nvidia GPU, exit if no GPU
-        if not torch.cuda.is_available():
-            raise RuntimeError("NVIDIA GPU not available. Cannot train in Parallel")
-        else:
-            device = torch.device("cuda")
-            print(f"Using {device} device!")
+    #     # Check for Nvidia GPU, exit if no GPU
+    #     if not torch.cuda.is_available():
+    #         raise RuntimeError("NVIDIA GPU not available. Cannot train in Parallel")
+    #     else:
+    #         device = torch.device("cuda")
+    #         print(f"Using {device} device!")
 
-        while self.success_count < self.amount_to_produce:
-            print(f"Training Network {self.attempt+1}")
+    #     while self.success_count < self.amount_to_produce:
+    #         print(f"Training Network {self.attempt+1}")
 
-            # Stop if maximum attempts are reached
-            if self.attempt >= self.max_attempts:
-                print("Error: Maximum number of attempts reached without meeting success criteria.")
-                break
+    #         # Stop if maximum attempts are reached
+    #         if self.attempt >= self.max_attempts:
+    #             print("Error: Maximum number of attempts reached without meeting success criteria.")
+    #             break
 
-            # Instantiate a new network
-            network_to_be = self.model_architecture()
-            optimizer = torch.optim.SGD(network_to_be.parameters(), lr=learning_rate)  # SGD optimizer
+    #         # Instantiate a new network
+    #         network_to_be = self.model_architecture()
+    #         optimizer = torch.optim.SGD(network_to_be.parameters(), lr=learning_rate)  # SGD optimizer
             
-            # Train the network
-            network_to_be = torch.nn.DataParallel(network_to_be)
-            self.__train_network_parallel__(network_to_be, train_loader, num_epochs, optimizer, loss_fn, device)
+    #         # Train the network
+    #         network_to_be = torch.nn.DataParallel(network_to_be)
+    #         self.__train_network_parallel__(network_to_be, train_loader, num_epochs, optimizer, loss_fn, device)
 
-            # Check if the network meets the success criteria
-            self.__check_success__(network_to_be)
-            self.attempt += 1  # Increment attempt counter
+    #         # Check if the network meets the success criteria
+    #         self.__check_success__(network_to_be)
+    #         self.attempt += 1  # Increment attempt counter
 
-        if self.success_count == self.amount_to_produce:
-            print(f"Successfully trained {self.success_count} networks.")
-        else:
-            print(f"{self.success_count} successful networks created out of {self.amount_to_produce}.")
+    #     if self.success_count == self.amount_to_produce:
+    #         print(f"Successfully trained {self.success_count} networks.")
+    #     else:
+    #         print(f"{self.success_count} successful networks created out of {self.amount_to_produce}.")
         
-        print(f"Attemps:{self.attempt}, successfull networks: {self.success_count}")
-        print("Resetting internal counter of networks...")
+    #     print(f"Attemps:{self.attempt}, successfull networks: {self.success_count}")
+    #     print("Resetting internal counter of networks...")
         
-        # Reset these parameters to run the Analyzer again
-        self.attempt = 0
-        self.success_count = 0
+    #     # Reset these parameters to run the Analyzer again
+    #     self.attempt = 0
+    #     self.success_count = 0
