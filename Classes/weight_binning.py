@@ -28,8 +28,53 @@ class WeightBinning():
         self.store_weights()
         print("Stored weights")
         
-       
 
+
+    def __getMinOrMax__(self, networks, layerNum, getMin):
+        """
+        Parameters:
+        - networks: an array of trained pytorch networks (works with both regular and permutation-free)
+        - layerNum: an int representing the fully connected layer to access
+        - getMin: a boolean indicating whether to get the min or max
+        Outputs: the minimum or maximum weight in some array of neural networks
+        """
+        weights = []
+        for network in networks:
+            # Check if network has a nested 'network' attribute (like PermutationFreeNet)
+            if hasattr(network, "network"):
+                net_layers = list(network.network.children())
+            else:
+                net_layers = list(network.children())
+            
+            fc_layer_idx = 0  # Counter for Linear layers
+            for layer in net_layers:
+                if isinstance(layer, nn.Linear):
+                    if fc_layer_idx == layerNum:
+                        weights.extend(layer.weight.data.cpu().numpy().flatten())
+                    fc_layer_idx += 1
+        
+        if getMin:
+            return min(weights) - 1e-6 #small adjustment to account for floating point error
+        else:
+            return max(weights) + 1e-6
+        
+    def get_layer_weight_distributions(self):
+        """
+        Get the layer weight distributions data structure.
+        
+        Returns:
+        - layer_weight_distributions: A list of 3D numpy arrays, one per layer, with shape 
+        (num neurons, num neurons in previous layer, num bins), where each bin contains the count of networks 
+        whose weight at that position falls within the bin's range.
+        
+        Raises:
+        - AttributeError: If store_weights() hasn't been called yet
+        """
+        if not hasattr(self, 'layer_weight_distributions'):
+            raise AttributeError("layer_weight_distributions not available. Call store_weights() first.")
+    
+        return self.layer_weight_distributions
+        
     def load_models(self):
 
         #Load in the networks
@@ -47,31 +92,6 @@ class WeightBinning():
         print("Number of networks loaded:")
         print(len(self.networks))
         return self.networks
-
-
-    def __getMinOrMax__(self, networks, layerNum, getMin):
-        """
-        Parameters:
-        - networks: an array of trained pytorch networks where the layers are nn.Linear
-        - layer: an int representing the fully connected layer to access
-        - getMin: a boolean indicating wheter to get the min or max
-        Outputs: the minimum or maximum weight in some array of neural networks
-        """
-        weights = []
-        curLayer = -1
-        for network in networks:
-            for layer in network.children():
-                if isinstance(layer, nn.Linear):
-                    curLayer += 1
-                    if curLayer == layerNum:
-                        #.cpu moves the tensor from the gpu to cpu if it is there in order to use .numpy()
-                        weights.extend(layer.weight.data.cpu().numpy().flatten())
-            curLayer = -1
-        
-        if getMin:
-            return min(weights) - 1e-6 #small adjustment to account for floating point rounding error, issue occured with getting the upper bound of the max bin
-        else:
-            return max(weights) + 1e-6
 
     def store_weights(self):
         """
@@ -97,31 +117,38 @@ class WeightBinning():
         self.layer_bin_ranges = []
         network_fc_indices = []
         
-        #get the indices of the fully connected layers
-        # generate matrix of shape layer, network, neuron, incoming weight of 0s 
-        layers = self.networks[0].children()
-        fcLayerNum = -1
+        # Get the appropriate layers from the first network
+        first_network = self.networks[0]
+        if hasattr(first_network, "network"):
+            layers = list(first_network.network.children())
+        else:
+            layers = list(first_network.children())
+        
+        # Find linear layers and create bin ranges
+        fc_layer_idx = 0
         for index, layer in enumerate(layers):
             if isinstance(layer, nn.Linear):
-                fcLayerNum += 1
-                layerMin = self.__getMinOrMax__(self.networks, fcLayerNum, True)
-                layerMax = self.__getMinOrMax__(self.networks, fcLayerNum, False)
-                #for each layer make an array of shape (num of neurons in layer, num of inputs to layer, num of bins)
+                layerMin = self.__getMinOrMax__(self.networks, fc_layer_idx, True)
+                layerMax = self.__getMinOrMax__(self.networks, fc_layer_idx, False)
+                
                 network_fc_indices.append(index)
                 layer_shape = layer.weight.shape
                 self.layer_weight_distributions.append(np.zeros(layer_shape + (self.NUM_BINS,), dtype=int))
                 #subtract 1 to make 0-indexed
-                bin_edges = np.histogram_bin_edges(a=[], bins=(self.NUM_BINS), range=(layerMin, layerMax))
+                bin_edges = np.histogram_bin_edges(a=[], bins=self.NUM_BINS, range=(layerMin, layerMax))
                 self.layer_bin_ranges.append(bin_edges)
-
                 
-                
-        #Store loaded networks weights in 2D list
+                fc_layer_idx += 1
+        
+        # Store weights from all networks
         network_weights = []
         for index, layer_index in enumerate(network_fc_indices):
             network_weights_per_layer = []
             for network in self.networks:
-                net_layers = list(network.children())
+                if hasattr(network, "network"):
+                    net_layers = list(network.network.children())
+                else:
+                    net_layers = list(network.children())
                 network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
             network_weights.append(network_weights_per_layer)
 
@@ -166,7 +193,7 @@ class WeightBinning():
             plt.xticks(range(num_bins), bin_labels, rotation=45, ha='right')  # Rotate for readability
             plt.grid(axis='y', linestyle='--', alpha=0.7)
             plt.tight_layout()  # Adjust layout to prevent label cut-off
-            #plt.show()
+            plt.show()
             plt.savefig(self.save_dir+ "/weight_plot_"+"layer:"+ str(layer) +"_position:"+str(weight_position))
 
     def normalize_distributions(self):
@@ -235,11 +262,18 @@ class WeightBinning():
                                 if rep_count > 0:
                                     X_list.extend([center] * rep_count)
 
-                            if len(X_list) == 0:
-                                layer_models[neuron_idx, from_weight_idx] = None
-                                continue
-
-                            X = np.array(X_list).reshape(-1, 1)
+                            if len(X_list) <= 1:  # If we have 0 or 1 sample
+                                print(f"WARNING: Insufficient samples for GMM at layer {layer_idx}, neuron {neuron_idx}, input {from_weight_idx}. Adding noise to create multiple samples.")
+                                # Find the bin with maximum count
+                                max_bin_idx = np.argmax(counts)
+                                # Create at least 2 samples with tiny random variations
+                                X = np.array([bin_centers[max_bin_idx]] * 3).reshape(-1, 1)
+                                # Add tiny variations to create distinct points
+                                X[1] += 1e-6
+                                X[2] -= 1e-6
+                            else:
+                                X = np.array(X_list).reshape(-1, 1)
+                                
                             gmm = GaussianMixture(
                                 n_components=n_components,
                                 random_state=random_state
@@ -558,8 +592,55 @@ class WeightBinning():
                 
         print(f"Found {len(seen_cluster_indices)} unique {'GMM' if multi_peak else 'Gaussian'} distributions in layer {layer}")
 
+    def weights_walkthrough(self, layer=0, walkthrough_strategy='previous_layer_first', start_neuron=0):
+        """
+        Step through the weights of a selected layer using a specified traversal strategy.
+
+        Parameters:
+        - layer: Index of the selected layer (0-indexed).
+        - walkthrough_strategy: 'previous_layer_first' or 'next_layer_first' traversal strategy.
+        - start_neuron: Optional, neuron in the selected layer to start the walkthrough from (default is 0).
+        """
+        if not hasattr(self, 'layer_weight_distributions') or not hasattr(self, 'layer_bin_ranges'):
+            print("No weight distributions available. Call store_weights() first.")
+            return
+        
+        weight_distributions = self.layer_weight_distributions
+        bin_edges = self.layer_bin_ranges[layer]
+        
+        num_neurons = weight_distributions[layer].shape[0]  # number of neurons in the selected layer
+        num_weights = weight_distributions[layer].shape[1]  # number of weights to each neuron in selected layer
+
+        if walkthrough_strategy == 'previous_layer_first':
+            for neuron in range(start_neuron, num_neurons):
+                for incoming_weight in range(num_weights):
+                    print(f"Neuron {neuron}, Incoming Weight {incoming_weight}")
+                    
+                    self.plot_weight_bins(weight_distributions, layer, (neuron, incoming_weight), bin_edges)
+                    
+                    user_input = input("Press Enter to continue, or type 'q' to stop: ").strip().lower()
+                    if user_input == 'q':
+                        print("Quitting walkthrough.")
+                        return
+                
+        elif walkthrough_strategy == 'next_layer_first':
+            for incoming_weight in range(num_weights):
+                for neuron in range(start_neuron, num_neurons):
+                    print(f"Neuron {neuron}, Incoming Weight {incoming_weight}")
+                    
+                    self.plot_weight_bins(weight_distributions, layer, (neuron, incoming_weight), bin_edges)
+                    
+                    user_input = input("Press Enter to continue, or type 'q' to stop: ").strip().lower()
+                    if user_input == 'q':
+                        print("Quitting walkthrough.")
+                        return
+                
+        else:
+            print("Invalid walkthrough strategy. Choose 'previous_layer_first' or 'next_layer_first'.")
+
     def analyze_distributions(self, layer=0, kl_threshold=0.001, multi_peak=False, peaks_per_layer=None, 
-                             random_state=42, replicate_factor=1000):
+                             random_state=42, replicate_factor=1000, run_walkthrough=False, 
+                             walkthrough_strategy='previous_layer_first', start_neuron=0):
         """
         Driver function to analyze weight distributions in a specified layer.
         
@@ -570,10 +651,23 @@ class WeightBinning():
         - peaks_per_layer: List specifying number of components for each layer's GMM (required if multi_peak=True)
         - random_state: Random seed for GMM fitting (default 42)
         - replicate_factor: Multiplier for normalized counts in GMM fitting (default 1000)
+        - run_walkthrough: Whether to run an interactive walkthrough of weight distributions (default False)
+        - walkthrough_strategy: Strategy for weight walkthrough, 'previous_layer_first' or 'next_layer_first' (default 'previous_layer_first')
+        - start_neuron: Starting neuron for walkthrough (default 0)
         
         Returns:
         - cluster_indices: List of cluster indices for each layer
         """
+
+        # Run interactive walkthrough if requested
+        if run_walkthrough:
+            print("Starting interactive weight walkthrough...")
+            self.weights_walkthrough(
+                layer=layer,
+                walkthrough_strategy=walkthrough_strategy,
+                start_neuron=start_neuron
+            )
+
         # Ensure distributions are normalized
         if not hasattr(self, 'normalized_distributions'):
             print("Normalizing distributions...")
@@ -601,6 +695,6 @@ class WeightBinning():
             indices=cluster_indices,
             layer=layer,
             multi_peak=multi_peak
-        )
+        )        
         
         return cluster_indices
