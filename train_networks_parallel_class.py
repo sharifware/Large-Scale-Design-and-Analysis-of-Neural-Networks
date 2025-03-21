@@ -1,0 +1,506 @@
+#!/usr/bin/env python
+"""
+This script uses multiprocessing to concurrently train neural networks with various architectures. 
+Each worker is assigned to one GPU to train a network. Only networks that meet the success criteria are saved.
+"""
+
+import os
+import sys
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# Add parent directory to Python path to import from sibling directories
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+sys.path.append(parent_dir)
+
+from torch.utils.data import DataLoader, TensorDataset
+from concurrent.futures import ProcessPoolExecutor
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from itertools import cycle
+import torch.multiprocessing as mp
+import argparse
+import json
+from datetime import datetime
+import gc
+
+# Now import from sibling directory
+from Architectures.permutation_free_architecture import PermutationFreeNet
+from Architectures.standardRegArchitecture import SimpleNet
+
+
+class ParallelNetworkTrainer:
+    """
+    A class to handle parallel training of neural networks across multiple GPUs.
+    Only networks that meet the success criteria are saved.
+    """
+    
+    def __init__(self, 
+                 data_path,
+                 model_architecture=None,
+                 model_args=None,        
+                 success_loss=0.1, 
+                 convergence_threshold=1e-1, 
+                 amount_to_produce=500,
+                 epochs=20, 
+                 learning_rate=0.1, 
+                 max_gpus=4, 
+                 output_dir='WorkingNetworks',
+                 output_file_name='working_networks.pt',
+                 intermittent_save_size=100,
+                 # Below parameters only used if model_architecture is PermutationFreeNet
+                 use_masked=True,
+                 itype="masked",
+                 freeze=True):
+        """Initialize the trainer with configuration parameters."""
+        self.data_path = data_path
+        self.success_loss = success_loss
+        self.convergence_threshold = convergence_threshold
+        self.amount_to_produce = amount_to_produce
+        self.epochs = epochs
+        self.learning_rate = learning_rate
+        self.max_gpus = max_gpus
+        self.output_dir = output_dir
+        self.output_file_name = output_file_name
+        self.intermittent_save_size = intermittent_save_size
+        
+        # Set model architecture and arguments
+        if model_architecture is None:
+            # Default to SimpleNet if not specified
+            self.model_architecture = SimpleNet
+            self.model_args = {}  # SimpleNet takes no arguments
+        else:
+            self.model_architecture = model_architecture
+            self.model_args = model_args or {}
+        # For backwards compatibility and metadata
+        self.permutation_free_settings = {
+            'use_masked': use_masked,
+            'itype': itype,
+            'freeze': freeze
+        }
+        
+        # Runtime variables
+        self.train_loader = None
+        self.test_loader = None
+        self.loss_fn = nn.MSELoss()
+        self.collected_networks = {}
+        
+        # Check CUDA availability
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available. Cannot continue.")
+        
+        print(f"CUDA available: {torch.cuda.is_available()}")
+        print(f"Using up to {self.max_gpus} GPUs")
+        print(f"Model architecture: {self.model_architecture.__name__}")
+
+    def load_data(self):
+        """Load and prepare data for training."""
+        csv_data = pd.read_csv(self.data_path)
+        a = csv_data['a'].values.reshape(-1, 1)
+        b = csv_data['b'].values.reshape(-1, 1)
+        y = csv_data['y'].values.reshape(-1, 1)
+
+        a_tensor = torch.tensor(a, dtype=torch.float32)
+        b_tensor = torch.tensor(b, dtype=torch.float32)
+        y_tensor = torch.tensor(y, dtype=torch.float32)
+        X_tensor = torch.cat((a_tensor, b_tensor), dim=1)
+
+        X_train, X_test, y_train, y_test = train_test_split(X_tensor, y_tensor, test_size=0.2, random_state=42)
+        train_dataset = TensorDataset(X_train, y_train)
+        test_dataset = TensorDataset(X_test, y_test)
+
+        batch_size = 1024
+        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=batch_size)
+        print("Data loaded from", self.data_path)
+
+    @staticmethod
+    def train_single_network(model_class, model_args, train_loader, test_loader, num_epochs,
+                           learning_rate, loss_fn, device, success_loss, convergence_threshold, task_id):
+        """Train a single network and return its state dict if successful."""
+        model = None
+        optimizer = None
+        try:
+            # Create model instance based on whether it needs arguments
+            if model_args:
+                model = model_class(**model_args).to(device)
+            else:
+                model = model_class().to(device)
+                
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+            train_loss_history = []
+            
+            for epoch in range(num_epochs):
+                model.train()
+                running_loss = 0.0
+                for inputs, targets in train_loader:
+                    inputs, targets = inputs.to(device), targets.to(device)
+                    optimizer.zero_grad()
+                    outputs = model(inputs)
+                    loss = loss_fn(outputs, targets)
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()
+                avg_loss = running_loss / len(train_loader)
+                train_loss_history.append(avg_loss)
+                print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
+            
+            #check for convergence
+            if len(train_loss_history) >= 2:
+                converged = (train_loss_history[-2] - train_loss_history[-1]) < convergence_threshold
+            else:
+                converged = False
+
+            if not converged: 
+                print(f"Task {task_id}: Network did not converge.")
+            if train_loss_history[-1] > success_loss: 
+                print(f"Task {task_id}: Network loss is too high: {train_loss_history[-1]:.4f}")
+
+            #check for success
+            if train_loss_history[-1] <= success_loss and converged:
+                print(f"Task {task_id}: Network succeeded with loss {train_loss_history[-1]:.4f}.")
+                # Move the model to CPU first
+                model.cpu()
+                # Then get the state dict (which will now be on CPU)
+                cpu_state_dict = model.state_dict()
+                return cpu_state_dict, float(train_loss_history[-1])
+            else:
+                return None, None
+        finally:
+            # Cleanup - safely delete only if they exist
+            if model is not None:
+                # Move model to CPU before deleting to avoid CUDA errors
+                if next(model.parameters(), None) is not None:
+                    model.cpu()
+                del model
+            if optimizer is not None:
+                del optimizer
+            torch.cuda.empty_cache()
+
+    @staticmethod
+    def worker(task_id, gpu_id, model_class, model_args, train_loader, test_loader,
+             num_epochs, learning_rate, loss_fn, success_loss, convergence_threshold):
+        """Worker function to train a network on a specific GPU."""
+        try:
+            # Set device before any CUDA operations
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            torch.cuda.set_device(0)  # Explicitly set device to avoid auto assignment issues
+            device = torch.device("cuda:0")
+            
+            # Add more aggressive garbage collection
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            result, final_loss = ParallelNetworkTrainer.train_single_network(
+                model_class, model_args, train_loader, test_loader,
+                num_epochs, learning_rate, loss_fn, device,
+                success_loss, convergence_threshold, task_id
+            )
+            if result is not None:
+                # Ensure all tensors in state_dict are on CPU
+                result = {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in result.items()}
+                # Convert loss to Python native float
+                final_loss = float(final_loss)
+                
+            return result, final_loss
+        except Exception as e:
+            print(f"Worker error (Task {task_id}, GPU {gpu_id}): {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
+        finally:
+            # More robust cleanup
+            gc.collect()
+            torch.cuda.empty_cache()
+            if torch.cuda.is_available():
+                try:
+                    torch.cuda.synchronize()
+                except:
+                    pass
+
+    def check_and_save_networks(self, tasks_successful, last_save_count, collected_networks):
+        """Helper function to check if networks should be saved and perform the save if needed."""
+        if self.intermittent_save_size > 0 and self.output_dir is not None:
+            if (tasks_successful % self.intermittent_save_size == 0 or 
+                tasks_successful == self.amount_to_produce):
+                networks_to_save = {}
+                for i in range(last_save_count + 1, tasks_successful + 1):
+                    key = f'network_{i}'
+                    if key in collected_networks:
+                        networks_to_save[key] = collected_networks[key]
+                
+                save_path = f"{self.output_dir}/{self.output_file_name}"
+                # Save the newly collected networks
+                self.save_networks(save_path, networks_to_save, append=True)
+                print(f"Intermittent save: Saved networks {last_save_count+1} to {tasks_successful} to {save_path}")
+                return tasks_successful
+        return last_save_count
+
+    def parallel_train_networks(self):
+        """Train networks in parallel across multiple GPUs until target amount is reached."""
+        collected_networks = {}
+        tasks_submitted = 0
+        tasks_successful = 0
+        last_save_count = 0
+        
+        # Periodically restart the process pool to avoid memory buildup
+        max_tasks_before_refresh = 20  # Adjust based on your resources
+        
+        while tasks_successful < self.amount_to_produce:
+            with ProcessPoolExecutor(max_workers=self.max_gpus) as executor:
+                futures = []
+                gpu_cycle = cycle(range(self.max_gpus))
+                tasks_in_current_pool = 0
+                
+                while (tasks_successful < self.amount_to_produce and 
+                       tasks_in_current_pool < max_tasks_before_refresh):
+                    # Submit a new task only if the target isn't reached
+                    gpu_id = next(gpu_cycle)
+                    future = executor.submit(
+                        self.worker, 
+                        tasks_submitted, 
+                        gpu_id, 
+                        self.model_architecture,
+                        self.model_args,        
+                        self.train_loader, 
+                        self.test_loader, 
+                        self.epochs,
+                        self.learning_rate, 
+                        self.loss_fn, 
+                        self.success_loss,
+                        self.convergence_threshold
+                    )
+                    futures.append((tasks_submitted, future))
+                    tasks_submitted += 1
+                    tasks_in_current_pool += 1
+                    
+                    # Check for completed tasks and update progress
+                    for task_id, fut in list(futures):
+                        if fut.done():
+                            try:
+                                result, final_loss = fut.result()
+                            except Exception as e:
+                                print(f"Task {task_id} encountered an error: {e}")
+                                result, final_loss = None, None
+                            
+                            if result is not None:
+                                network_name = f'network_{tasks_successful+1}'
+                                collected_networks[network_name] = result
+                                tasks_successful += 1
+                                print(f"Network {tasks_successful} succeeded (Task {task_id}).")
+                                
+                                last_save_count = self.check_and_save_networks(
+                                    tasks_successful, last_save_count, collected_networks
+                                )
+                            
+                            futures.remove((task_id, fut))
+                            # Cancel any pending tasks if the target is reached
+                            if tasks_successful >= self.amount_to_produce:
+                                for _, pending_fut in futures:
+                                    pending_fut.cancel()
+                                futures.clear()
+                                break
+                
+                # Wait for any remaining futures to complete
+                for task_id, fut in futures:
+                    try:
+                        result, final_loss = fut.result(timeout=3600)  # 1 hour timeout
+                        if result is not None:
+                            network_name = f'network_{tasks_successful+1}'
+                            collected_networks[network_name] = result
+                            tasks_successful += 1
+                            
+                            last_save_count = self.check_and_save_networks(
+                                tasks_successful, last_save_count, collected_networks
+                            )
+                    except Exception as e:
+                        print(f"Task {task_id} failed with: {e}")
+            
+            # Force Python garbage collection between pool restarts
+            gc.collect()
+        
+        return collected_networks
+
+    @staticmethod
+    def save_networks(save_path, networks_to_save, append=False):
+        """Save networks to file, with option to append to existing file"""
+        if append and os.path.exists(save_path):
+            try:
+                # Load existing networks
+                existing_networks = torch.load(save_path)
+                # Merge with new networks
+                for key, value in networks_to_save.items():
+                    existing_networks[key] = value
+                # Save merged networks
+                torch.save(existing_networks, save_path)
+            except Exception as e:
+                print(f"Warning: Failed to append to existing file: {e}")
+                print(f"Saving only new networks instead.")
+                torch.save(networks_to_save, save_path)
+        else:
+            # Save without appending
+            torch.save(networks_to_save, save_path)
+
+    def load_existing_networks(self):
+        """Load existing networks from the save path if they exist."""
+        existing_networks = {}
+        save_path = f"{self.output_dir}/{self.output_file_name}"
+        if os.path.exists(save_path):
+            try:
+                existing_networks = torch.load(save_path)
+                print(f"Loaded {len(existing_networks)} existing networks from {save_path}")
+                if existing_networks:
+                    # Find the highest network index
+                    max_idx = 0
+                    for key in existing_networks.keys():
+                        if key.startswith('network_'):
+                            try:
+                                idx = int(key.split('_')[1])
+                                max_idx = max(max_idx, idx)
+                            except:
+                                pass
+                    print(f"Will continue training from network_{max_idx+1}")
+            except Exception as e:
+                print(f"Failed to load existing networks: {e}")
+                existing_networks = {}
+        return existing_networks
+
+    def create_experiment_metadata(self):
+        """Create metadata for the current experiment."""
+        metadata = {
+            'date': datetime.now().isoformat(),
+            'parameters': {
+                'model_architecture': self.model_architecture.__name__,
+                'success_loss': self.success_loss,
+                'convergence_threshold': self.convergence_threshold,
+                'amount_to_produce': self.amount_to_produce,
+                'num_epochs': self.epochs,
+                'learning_rate': self.learning_rate,
+                'max_gpus': self.max_gpus,
+                'data_path': self.data_path,
+                'intermittent_save_size': self.intermittent_save_size
+            }
+        }
+        
+        # Add permutation free settings if using PermutationFreeNet
+        if self.model_architecture == PermutationFreeNet:
+            metadata['parameters']['permutation_free_settings'] = {
+                'input_size': self.model_args['input_size'],
+                'hidden_size': self.model_args['hidden_size'],
+                'output_size': self.model_args['output_size'],
+                'num_hidden_layers': self.model_args['num_hidden_layers']
+            }
+        
+        # Add model arguments if they exist
+        if self.model_args:
+            metadata['parameters']['model_args'] = self.model_args
+            
+        return metadata
+
+    def run(self):
+        """Main execution method to run the training process."""
+        # Initialize multiprocessing
+        mp.set_start_method('spawn', force=True)
+        
+        # Ensure output directory exists
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Load data
+        self.load_data()
+        
+        # Check for existing networks
+        existing_networks = self.load_existing_networks()
+        
+        # Create experiment metadata
+        experiment_metadata = self.create_experiment_metadata()
+        print(f"Starting training with parameters: {experiment_metadata['parameters']}")
+        
+        # Run the training
+        networks_state_dicts = self.parallel_train_networks()
+        
+        # Merge with existing networks if we started with some
+        if existing_networks:
+            for key, value in existing_networks.items():
+                if key not in networks_state_dicts:
+                    networks_state_dicts[key] = value
+        
+        # Save final results
+        save_path = f"{self.output_dir}/{self.output_file_name}"
+        torch.save(networks_state_dicts, save_path)
+        
+        # Save metadata
+        with open(f"{self.output_dir}/metadata.json", 'w') as f:
+            json.dump(experiment_metadata, f, indent=2)
+        
+        print(f"Training complete. Saved {len(networks_state_dicts)} networks to {self.output_dir}")
+        print(f"Metadata saved to {self.output_dir}/metadata.json")
+        
+        return networks_state_dicts
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description='Train neural networks in parallel')
+    parser.add_argument('--data', type=str, default='data/simpleReg.csv', help='Path to data CSV file')
+    parser.add_argument('--success-loss', type=float, default=0.1, help='Threshold for successful training')
+    parser.add_argument('--convergence-threshold', type=float, default=1e-1, help='Threshold for determining convergence')
+    parser.add_argument('--amount', type=int, default=100, help='Number of successful networks to produce')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs per network')
+    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--gpus', type=int, default=4, help='Number of GPUs to use')
+    parser.add_argument('--output-dir', type=str, default='WorkingNetworks', help='Directory to save networks')
+    parser.add_argument('--output-file-name', type=str, default='working_networks.pt', help='Name of the file to save networks')
+    parser.add_argument('--intermittent-save-size', type=int, default=100, 
+                        help='Save networks after collecting this many successful ones (0 to disable)')
+    parser.add_argument('--model-type', type=str, default='permutation_free', choices=['permutation_free', 'simple'],
+                        help='Type of network architecture to use')
+    
+    # Arguments specific to permutation-free architecture
+    permutation_group = parser.add_argument_group('Permutation-Free Architecture Options')
+    permutation_group.add_argument('--use-masked', action='store_true', default=True, help='Use masked permutation-free architecture')
+    permutation_group.add_argument('--itype', type=str, default='masked', choices=['masked', 'sparse', 'static'], 
+                            help='Type of permutation-free architecture')
+    permutation_group.add_argument('--freeze', action='store_true', default=True, help='Freeze permutation layers')
+    return parser.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    
+    # Determine which model architecture to use
+    if args.model_type == 'simple':
+        model_architecture = SimpleNet
+        model_args = {}  # SimpleNet takes no arguments
+    else:  # default to permutation_free
+        model_architecture = PermutationFreeNet
+        model_args = {
+            'use_masked': args.use_masked,
+            'itype': args.itype,
+            'freeze': args.freeze
+        }
+    
+    # Create the trainer
+    trainer = ParallelNetworkTrainer(
+        data_path=args.data,
+        model_architecture=model_architecture,
+        model_args=model_args,
+        success_loss=args.success_loss,
+        convergence_threshold=args.convergence_threshold,
+        amount_to_produce=args.amount,
+        epochs=args.epochs,
+        learning_rate=args.lr,
+        max_gpus=args.gpus,
+        output_dir=args.output_dir,
+        output_file_name=args.output_file_name,
+        intermittent_save_size=args.intermittent_save_size,
+        # Pass these for backwards compatibility
+        use_masked=args.use_masked,
+        itype=args.itype,
+        freeze=args.freeze
+    )
+    
+    # Run the training
+    trainer.run()

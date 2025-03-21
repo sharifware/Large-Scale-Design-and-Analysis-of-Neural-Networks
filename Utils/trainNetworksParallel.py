@@ -25,6 +25,8 @@ import torch.multiprocessing as mp
 import argparse
 import json
 from datetime import datetime
+import gc
+from concurrent.futures import as_completed
 
 # Now import from sibling directory
 from Architectures.permutation_free_architecture import PermutationFreeNet
@@ -98,23 +100,27 @@ def worker(task_id, gpu_id, model_architecture, permutation_free_settings, train
     try:
         # Set device before any CUDA operations
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        torch.cuda.set_device(0)  # Explicitly set device to avoid auto assignment issues
+        torch.cuda.set_device(0)
         device = torch.device("cuda:0")
         
-        # Add more aggressive garbage collection
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
+        # Log open file descriptors at start
+        fds_start = len(os.listdir('/proc/self/fd'))
+        print(f"Task {task_id} start: open fds: {fds_start}")
         
+        # Run training
         result, final_loss = train_single_network(model_architecture, permutation_free_settings, train_loader, test_loader,
-                                      num_epochs, learning_rate, loss_fn, device,
-                                      success_loss, convergence_threshold, task_id)
+                                                  num_epochs, learning_rate, loss_fn, device,
+                                                  success_loss, convergence_threshold, task_id)
         if result is not None:
-            # Ensure all tensors in state_dict are on CPU
             result = {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in result.items()}
-            # Convert loss to Python native float
             final_loss = float(final_loss)
-            
+        
+        # Log open file descriptors at end
+        fds_end = len(os.listdir('/proc/self/fd'))
+        print(f"Task {task_id} end: open fds: {fds_end}")
+        if fds_end > fds_start:
+            print(f"Warning: Task {task_id} increased open fds by {fds_end - fds_start}")
+        
         return result, final_loss
     except Exception as e:
         print(f"Worker error (Task {task_id}, GPU {gpu_id}): {e}")
@@ -122,7 +128,6 @@ def worker(task_id, gpu_id, model_architecture, permutation_free_settings, train
         traceback.print_exc()
         return None, None
     finally:
-        # More robust cleanup
         gc.collect()
         torch.cuda.empty_cache()
         if torch.cuda.is_available():
@@ -132,7 +137,7 @@ def worker(task_id, gpu_id, model_architecture, permutation_free_settings, train
                 pass
 
 def check_and_save_networks(tasks_successful, last_save_count, collected_networks, 
-                           intermittent_save_size, amount_to_produce, output_dir):
+                           intermittent_save_size, amount_to_produce, output_dir, output_file_name):
     """Helper function to check if networks should be saved and perform the save if needed.
     """
     if intermittent_save_size > 0 and output_dir is not None:
@@ -143,7 +148,7 @@ def check_and_save_networks(tasks_successful, last_save_count, collected_network
                 if key in collected_networks:
                     networks_to_save[key] = collected_networks[key]
             
-            save_path = f"{output_dir}/working_networks.pt"
+            save_path = f"{output_dir}/{output_file_name}"
             # Save the newly collected networks
             save_networks(save_path, networks_to_save, append=True)
             print(f"Intermittent save: Saved networks {last_save_count+1} to {tasks_successful} to {save_path}")
@@ -154,78 +159,58 @@ def parallel_train_networks(model_architecture, permutation_free_settings, train
                             num_epochs, learning_rate, loss_fn,
                             success_loss, convergence_threshold,
                             amount_to_produce, max_workers=4, 
-                            output_dir=None, intermittent_save_size=0):
+                            output_dir=None, output_file_name='working_networks.pt', intermittent_save_size=0):
     collected_networks = {}
     tasks_submitted = 0
     tasks_successful = 0
     last_save_count = 0
     
-    # Periodically restart the process pool to avoid memory buildup
-    max_tasks_before_refresh = 20  # Adjust based on your resources
-    
     while tasks_successful < amount_to_produce:
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
+            futures = {}
             gpu_cycle = cycle(range(max_workers))
-            tasks_in_current_pool = 0
-            
-            while tasks_successful < amount_to_produce and tasks_in_current_pool < max_tasks_before_refresh:
+            while tasks_successful < amount_to_produce:
                 # Submit a new task only if the target isn't reached
                 gpu_id = next(gpu_cycle)
                 future = executor.submit(worker, tasks_submitted, gpu_id, model_architecture, permutation_free_settings,
-                                        train_loader, test_loader, num_epochs,
-                                        learning_rate, loss_fn, success_loss,
-                                        convergence_threshold)
-                futures.append((tasks_submitted, future))
+                                     train_loader, test_loader, num_epochs,
+                                     learning_rate, loss_fn, success_loss,
+                                     convergence_threshold)
+                futures[future] = tasks_submitted
                 tasks_submitted += 1
-                tasks_in_current_pool += 1
                 
-                # Check for completed tasks and update progress
-                for task_id, fut in list(futures):
+                for fut in list(futures):
                     if fut.done():
+                        task_id = futures.pop(fut)
                         try:
                             result, final_loss = fut.result()
+                            if result is not None:
+                                network_name = f'network_{tasks_successful+1}'
+                                collected_networks[network_name] = result
+                                tasks_successful += 1
+                                print(f"Network {tasks_successful} succeeded (Task {task_id}).")
+                                
+                                last_save_count = check_and_save_networks(
+                                    tasks_successful, last_save_count, collected_networks,
+                                    intermittent_save_size, amount_to_produce, output_dir, output_file_name
+                                )
                         except Exception as e:
                             print(f"Task {task_id} encountered an error: {e}")
-                            result, final_loss = None, None
                         
-                        if result is not None:
-                            network_name = f'network_{tasks_successful+1}'
-                            collected_networks[network_name] = result
-                            tasks_successful += 1
-                            print(f"Network {tasks_successful} succeeded (Task {task_id}).")
-                            
-                            last_save_count = check_and_save_networks(
-                                tasks_successful, last_save_count, collected_networks,
-                                intermittent_save_size, amount_to_produce, output_dir
-                            )
-                        
-                        futures.remove((task_id, fut))
-                        # Cancel any pending tasks if the target is reached
-                        if tasks_successful >= amount_to_produce:
-                            for _, pending_fut in futures:
-                                pending_fut.cancel()
-                            futures.clear()
-                            break
             
             # Wait for any remaining futures to complete
-            for task_id, fut in futures:
+            for fut in as_completed(futures):
+                task_id = futures[fut]
                 try:
-                    result, final_loss = fut.result(timeout=3600)  # 1 hour timeout
+                    result, final_loss = fut.result(timeout=1800)  # 30 minutes timeout
                     if result is not None:
                         network_name = f'network_{tasks_successful+1}'
                         collected_networks[network_name] = result
                         tasks_successful += 1
-                        
-                        last_save_count = check_and_save_networks(
-                            tasks_successful, last_save_count, collected_networks,
-                            intermittent_save_size, amount_to_produce, output_dir
-                        )
                 except Exception as e:
                     print(f"Task {task_id} failed with: {e}")
         
         # Force Python garbage collection between pool restarts
-        import gc
         gc.collect()
     
     return collected_networks
@@ -234,20 +219,27 @@ def save_networks(save_path, networks_to_save, append=False):
     """Save networks to file, with option to append to existing file"""
     if append and os.path.exists(save_path):
         try:
-            # Load existing networks
-            existing_networks = torch.load(save_path)
+            # Use context manager to ensure file is closed
+            existing_networks = {}
+            with open(save_path, 'rb') as f:
+                existing_networks = torch.load(f)
+            
             # Merge with new networks
             for key, value in networks_to_save.items():
                 existing_networks[key] = value
-            # Save merged networks
-            torch.save(existing_networks, save_path)
+            
+            # Save merged networks with context manager
+            with open(save_path, 'wb') as f:
+                torch.save(existing_networks, f)
         except Exception as e:
             print(f"Warning: Failed to append to existing file: {e}")
             print(f"Saving only new networks instead.")
-            torch.save(networks_to_save, save_path)
+            with open(save_path, 'wb') as f:
+                torch.save(networks_to_save, f)
     else:
-        # Save without appending
-        torch.save(networks_to_save, save_path)
+        # Save without appending, using context manager
+        with open(save_path, 'wb') as f:
+            torch.save(networks_to_save, f)
 
 def load_data(data_path):
     csv_data = pd.read_csv(data_path)
@@ -370,6 +362,7 @@ if __name__ == '__main__':
         args.amount,
         max_workers=args.gpus,
         output_dir=args.output_dir,
+        output_file_name=args.output_file_name,
         intermittent_save_size=args.intermittent_save_size
     )
     
