@@ -241,7 +241,7 @@ def save_networks(save_path, networks_to_save, append=False):
         with open(save_path, 'wb') as f:
             torch.save(networks_to_save, f)
 
-def load_data(data_path):
+def load_data(data_path, batch_size=1024):
     csv_data = pd.read_csv(data_path)
     a = csv_data['a'].values.reshape(-1, 1)
     b = csv_data['b'].values.reshape(-1, 1)
@@ -253,10 +253,10 @@ def load_data(data_path):
     X_tensor = torch.cat((a_tensor, b_tensor), dim=1)
 
     X_train, X_test, y_train, y_test = train_test_split(X_tensor, y_tensor, test_size=0.2, random_state=42)
+
     train_dataset = TensorDataset(X_train, y_train)
     test_dataset = TensorDataset(X_test, y_test)
 
-    batch_size = 1024
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
     return train_loader, test_loader
@@ -269,6 +269,7 @@ def parse_args():
     parser.add_argument('--amount', type=int, default=100, help='Number of successful networks to produce')
     parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs per network')
     parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--batch-size', type=int, default=1024, help='Batch size for training')
     parser.add_argument('--gpus', type=int, default=4, help='Number of GPUs to use')
     parser.add_argument('--output-dir', type=str, default='WorkingNetworks', help='Directory to save networks')
     parser.add_argument('--output-file-name', type=str, default='working_networks.pt', help='Name of the file to save networks')
@@ -288,8 +289,9 @@ if __name__ == '__main__':
     print(f"Using up to {args.gpus} GPUs")
     
     # Load data
-    train_loader, test_loader = load_data(args.data)
+    train_loader, test_loader = load_data(args.data, args.batch_size)
     print("Data loaded from", args.data)
+    print(f"Using batch size of {args.batch_size}")
     
     # Setup training parameters
     loss_fn = nn.MSELoss()
@@ -315,6 +317,7 @@ if __name__ == '__main__':
             'amount_to_produce': args.amount,
             'num_epochs': args.epochs,
             'learning_rate': args.lr,
+            'batch_size': args.batch_size,
             'max_workers': args.gpus,
             'data_path': args.data,
             'permutation_free_settings': permutation_free_settings,

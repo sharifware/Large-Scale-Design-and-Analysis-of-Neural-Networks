@@ -7,9 +7,18 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import argparse
+import sys
 
-# Import both network architectures
-from permutation_free_architecture import PermutationFreeNet
+# Add parent directory to Python path to import from sibling directories
+# Get the absolute path of the current script's directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Get the parent directory
+parent_dir = os.path.dirname(script_dir)
+# Add parent directory to path
+sys.path.append(parent_dir)
+
+# Import network architectures from the proper module paths
+from Architectures.permutation_free_architecture import PermutationFreeNet
 
 #2 hidden layers
 #2 inputs, 2 hidden with 5 neurons each

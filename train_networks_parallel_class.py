@@ -26,6 +26,7 @@ import argparse
 import json
 from datetime import datetime
 import gc
+from concurrent.futures import as_completed
 
 # Now import from sibling directory
 from Architectures.permutation_free_architecture import PermutationFreeNet
@@ -51,6 +52,7 @@ class ParallelNetworkTrainer:
                  output_dir='WorkingNetworks',
                  output_file_name='working_networks.pt',
                  intermittent_save_size=100,
+                 batch_size=1024,
                  # Below parameters only used if model_architecture is PermutationFreeNet
                  use_masked=True,
                  itype="masked",
@@ -66,6 +68,7 @@ class ParallelNetworkTrainer:
         self.output_dir = output_dir
         self.output_file_name = output_file_name
         self.intermittent_save_size = intermittent_save_size
+        self.batch_size = batch_size
         
         # Set model architecture and arguments
         if model_architecture is None:
@@ -112,10 +115,10 @@ class ParallelNetworkTrainer:
         train_dataset = TensorDataset(X_train, y_train)
         test_dataset = TensorDataset(X_test, y_test)
 
-        batch_size = 1024
-        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        self.test_loader = DataLoader(test_dataset, batch_size=batch_size)
+        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=self.batch_size)
         print("Data loaded from", self.data_path)
+        print(f"Using batch size of {self.batch_size}")
 
     @staticmethod
     def train_single_network(model_class, model_args, train_loader, test_loader, num_epochs,
@@ -190,6 +193,10 @@ class ParallelNetworkTrainer:
             torch.cuda.set_device(0)  # Explicitly set device to avoid auto assignment issues
             device = torch.device("cuda:0")
             
+            # Log open file descriptors at start
+            fds_start = len(os.listdir('/proc/self/fd'))
+            print(f"Task {task_id} start: open fds: {fds_start}")
+            
             # Add more aggressive garbage collection
             gc.collect()
             torch.cuda.empty_cache()
@@ -204,6 +211,12 @@ class ParallelNetworkTrainer:
                 result = {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in result.items()}
                 # Convert loss to Python native float
                 final_loss = float(final_loss)
+            
+            # Log open file descriptors at end
+            fds_end = len(os.listdir('/proc/self/fd'))
+            print(f"Task {task_id} end: open fds: {fds_end}")
+            if fds_end > fds_start:
+                print(f"Warning: Task {task_id} increased open fds by {fds_end - fds_start}")
                 
             return result, final_loss
         except Exception as e:
@@ -246,17 +259,12 @@ class ParallelNetworkTrainer:
         tasks_successful = 0
         last_save_count = 0
         
-        # Periodically restart the process pool to avoid memory buildup
-        max_tasks_before_refresh = 20  # Adjust based on your resources
-        
         while tasks_successful < self.amount_to_produce:
             with ProcessPoolExecutor(max_workers=self.max_gpus) as executor:
-                futures = []
+                futures = {}
                 gpu_cycle = cycle(range(self.max_gpus))
-                tasks_in_current_pool = 0
                 
-                while (tasks_successful < self.amount_to_produce and 
-                       tasks_in_current_pool < max_tasks_before_refresh):
+                while tasks_successful < self.amount_to_produce:
                     # Submit a new task only if the target isn't reached
                     gpu_id = next(gpu_cycle)
                     future = executor.submit(
@@ -273,41 +281,32 @@ class ParallelNetworkTrainer:
                         self.success_loss,
                         self.convergence_threshold
                     )
-                    futures.append((tasks_submitted, future))
+                    futures[future] = tasks_submitted
                     tasks_submitted += 1
-                    tasks_in_current_pool += 1
                     
                     # Check for completed tasks and update progress
-                    for task_id, fut in list(futures):
+                    for fut in list(futures):
                         if fut.done():
+                            task_id = futures.pop(fut)
                             try:
                                 result, final_loss = fut.result()
+                                if result is not None:
+                                    network_name = f'network_{tasks_successful+1}'
+                                    collected_networks[network_name] = result
+                                    tasks_successful += 1
+                                    print(f"Network {tasks_successful} succeeded (Task {task_id}).")
+                                    
+                                    last_save_count = self.check_and_save_networks(
+                                        tasks_successful, last_save_count, collected_networks
+                                    )
                             except Exception as e:
                                 print(f"Task {task_id} encountered an error: {e}")
-                                result, final_loss = None, None
-                            
-                            if result is not None:
-                                network_name = f'network_{tasks_successful+1}'
-                                collected_networks[network_name] = result
-                                tasks_successful += 1
-                                print(f"Network {tasks_successful} succeeded (Task {task_id}).")
-                                
-                                last_save_count = self.check_and_save_networks(
-                                    tasks_successful, last_save_count, collected_networks
-                                )
-                            
-                            futures.remove((task_id, fut))
-                            # Cancel any pending tasks if the target is reached
-                            if tasks_successful >= self.amount_to_produce:
-                                for _, pending_fut in futures:
-                                    pending_fut.cancel()
-                                futures.clear()
-                                break
                 
                 # Wait for any remaining futures to complete
-                for task_id, fut in futures:
+                for fut in as_completed(futures):
+                    task_id = futures[fut]
                     try:
-                        result, final_loss = fut.result(timeout=3600)  # 1 hour timeout
+                        result, final_loss = fut.result(timeout=1800)  # 30 minutes timeout
                         if result is not None:
                             network_name = f'network_{tasks_successful+1}'
                             collected_networks[network_name] = result
@@ -329,20 +328,27 @@ class ParallelNetworkTrainer:
         """Save networks to file, with option to append to existing file"""
         if append and os.path.exists(save_path):
             try:
-                # Load existing networks
-                existing_networks = torch.load(save_path)
+                # Use context manager to ensure file is closed
+                existing_networks = {}
+                with open(save_path, 'rb') as f:
+                    existing_networks = torch.load(f)
+                
                 # Merge with new networks
                 for key, value in networks_to_save.items():
                     existing_networks[key] = value
-                # Save merged networks
-                torch.save(existing_networks, save_path)
+                
+                # Save merged networks with context manager
+                with open(save_path, 'wb') as f:
+                    torch.save(existing_networks, f)
             except Exception as e:
                 print(f"Warning: Failed to append to existing file: {e}")
                 print(f"Saving only new networks instead.")
-                torch.save(networks_to_save, save_path)
+                with open(save_path, 'wb') as f:
+                    torch.save(networks_to_save, f)
         else:
-            # Save without appending
-            torch.save(networks_to_save, save_path)
+            # Save without appending, using context manager
+            with open(save_path, 'wb') as f:
+                torch.save(networks_to_save, f)
 
     def load_existing_networks(self):
         """Load existing networks from the save path if they exist."""
@@ -379,6 +385,7 @@ class ParallelNetworkTrainer:
                 'amount_to_produce': self.amount_to_produce,
                 'num_epochs': self.epochs,
                 'learning_rate': self.learning_rate,
+                'batch_size': self.batch_size,
                 'max_gpus': self.max_gpus,
                 'data_path': self.data_path,
                 'intermittent_save_size': self.intermittent_save_size
@@ -450,6 +457,7 @@ def parse_args():
     parser.add_argument('--amount', type=int, default=100, help='Number of successful networks to produce')
     parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs per network')
     parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--batch-size', type=int, default=1024, help='Batch size for training')
     parser.add_argument('--gpus', type=int, default=4, help='Number of GPUs to use')
     parser.add_argument('--output-dir', type=str, default='WorkingNetworks', help='Directory to save networks')
     parser.add_argument('--output-file-name', type=str, default='working_networks.pt', help='Name of the file to save networks')
@@ -496,6 +504,7 @@ if __name__ == '__main__':
         output_dir=args.output_dir,
         output_file_name=args.output_file_name,
         intermittent_save_size=args.intermittent_save_size,
+        batch_size=args.batch_size,
         # Pass these for backwards compatibility
         use_masked=args.use_masked,
         itype=args.itype,

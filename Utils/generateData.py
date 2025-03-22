@@ -1,10 +1,19 @@
 import numpy as np
 import pandas as pd
+import argparse
+
+# Set up command line arguments
+parser = argparse.ArgumentParser(description='Generate regression data')
+parser.add_argument('--num_points', type=int, default=100000, 
+                    help='Number of data points to generate (default: 100000)')
+parser.add_argument('--output_file', type=str, default='./data/simpleReg.csv',
+                    help='Path to output CSV file (default: ./data/simpleReg.csv)')
+args = parser.parse_args()
 
 np.random.seed(12)
 
 # Generate data for the fn
-num_training_points = 100000
+num_training_points = args.num_points
 a = np.random.randn(num_training_points, 1)
 b = np.random.randn(num_training_points, 1)
 
@@ -24,4 +33,4 @@ data = pd.DataFrame({
 })
 
 #for now, ok to upload to git but if the data gets too large we'll want to use env and store it locally
-data.to_csv('./data/simpleReg.csv', index=False)
+data.to_csv(args.output_file, index=False)
