@@ -5,15 +5,9 @@ Each worker is assigned to one GPU to train a network. Only networks that meet t
 """
 
 import os
-import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
-# Add parent directory to Python path to import from sibling directories
-script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-sys.path.append(parent_dir)
 
 from torch.utils.data import DataLoader, TensorDataset
 from concurrent.futures import ProcessPoolExecutor
@@ -22,26 +16,26 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from itertools import cycle
 import torch.multiprocessing as mp
-import argparse
 import json
 from datetime import datetime
 import gc
 from concurrent.futures import as_completed
-
-# Now import from sibling directory
-from Architectures.permutation_free_architecture import PermutationFreeNet
-from Architectures.standardRegArchitecture import SimpleNet
+import concurrent.futures
 
 
-class ParallelNetworkTrainer:
+
+class NeuralNetworkTrainer:
     """
     A class to handle parallel training of neural networks across multiple GPUs.
     Only networks that meet the success criteria are saved.
+    
+    This class is architecture-agnostic and can be used with any PyTorch model class.
+    Provide the model class and any arguments required for instantiation.
     """
     
     def __init__(self, 
                  data_path,
-                 model_architecture=None,
+                 model_architecture,
                  model_args=None,        
                  success_loss=0.1, 
                  convergence_threshold=1e-1, 
@@ -52,11 +46,7 @@ class ParallelNetworkTrainer:
                  output_dir='WorkingNetworks',
                  output_file_name='working_networks.pt',
                  intermittent_save_size=100,
-                 batch_size=1024,
-                 # Below parameters only used if model_architecture is PermutationFreeNet
-                 use_masked=True,
-                 itype="masked",
-                 freeze=True):
+                 batch_size=1024):
         """Initialize the trainer with configuration parameters."""
         self.data_path = data_path
         self.success_loss = success_loss
@@ -71,19 +61,8 @@ class ParallelNetworkTrainer:
         self.batch_size = batch_size
         
         # Set model architecture and arguments
-        if model_architecture is None:
-            # Default to SimpleNet if not specified
-            self.model_architecture = SimpleNet
-            self.model_args = {}  # SimpleNet takes no arguments
-        else:
-            self.model_architecture = model_architecture
-            self.model_args = model_args or {}
-        # For backwards compatibility and metadata
-        self.permutation_free_settings = {
-            'use_masked': use_masked,
-            'itype': itype,
-            'freeze': freeze
-        }
+        self.model_architecture = model_architecture
+        self.model_args = model_args or {}
         
         # Runtime variables
         self.train_loader = None
@@ -201,7 +180,7 @@ class ParallelNetworkTrainer:
             gc.collect()
             torch.cuda.empty_cache()
             
-            result, final_loss = ParallelNetworkTrainer.train_single_network(
+            result, final_loss = NeuralNetworkTrainer.train_single_network(
                 model_class, model_args, train_loader, test_loader,
                 num_epochs, learning_rate, loss_fn, device,
                 success_loss, convergence_threshold, task_id
@@ -259,67 +238,77 @@ class ParallelNetworkTrainer:
         tasks_successful = 0
         last_save_count = 0
         
-        while tasks_successful < self.amount_to_produce:
-            with ProcessPoolExecutor(max_workers=self.max_gpus) as executor:
-                futures = {}
-                gpu_cycle = cycle(range(self.max_gpus))
+        with ProcessPoolExecutor(max_workers=self.max_gpus) as executor:
+            futures = {}
+            gpu_cycle = cycle(range(self.max_gpus))
+            
+            # Initially submit only max_gpus tasks
+            initial_tasks = min(self.max_gpus, self.amount_to_produce)
+            for _ in range(initial_tasks):
+                gpu_id = next(gpu_cycle)
+                future = executor.submit(
+                    self.worker, 
+                    tasks_submitted, 
+                    gpu_id, 
+                    self.model_architecture,
+                    self.model_args,        
+                    self.train_loader, 
+                    self.test_loader, 
+                    self.epochs,
+                    self.learning_rate, 
+                    self.loss_fn, 
+                    self.success_loss,
+                    self.convergence_threshold
+                )
+                futures[future] = tasks_submitted
+                tasks_submitted += 1
+            
+            # Process results and submit new tasks
+            while futures and tasks_successful < self.amount_to_produce:
+                # Wait for the next task to complete
+                done, _ = concurrent.futures.wait(
+                    futures, 
+                    return_when=concurrent.futures.FIRST_COMPLETED
+                )
                 
-                while tasks_successful < self.amount_to_produce:
-                    # Submit a new task only if the target isn't reached
-                    gpu_id = next(gpu_cycle)
-                    future = executor.submit(
-                        self.worker, 
-                        tasks_submitted, 
-                        gpu_id, 
-                        self.model_architecture,
-                        self.model_args,        
-                        self.train_loader, 
-                        self.test_loader, 
-                        self.epochs,
-                        self.learning_rate, 
-                        self.loss_fn, 
-                        self.success_loss,
-                        self.convergence_threshold
-                    )
-                    futures[future] = tasks_submitted
-                    tasks_submitted += 1
-                    
-                    # Check for completed tasks and update progress
-                    for fut in list(futures):
-                        if fut.done():
-                            task_id = futures.pop(fut)
-                            try:
-                                result, final_loss = fut.result()
-                                if result is not None:
-                                    network_name = f'network_{tasks_successful+1}'
-                                    collected_networks[network_name] = result
-                                    tasks_successful += 1
-                                    print(f"Network {tasks_successful} succeeded (Task {task_id}).")
-                                    
-                                    last_save_count = self.check_and_save_networks(
-                                        tasks_successful, last_save_count, collected_networks
-                                    )
-                            except Exception as e:
-                                print(f"Task {task_id} encountered an error: {e}")
-                
-                # Wait for any remaining futures to complete
-                for fut in as_completed(futures):
-                    task_id = futures[fut]
+                for fut in done:
+                    task_id = futures.pop(fut)
                     try:
-                        result, final_loss = fut.result(timeout=1800)  # 30 minutes timeout
+                        result, final_loss = fut.result()
                         if result is not None:
                             network_name = f'network_{tasks_successful+1}'
                             collected_networks[network_name] = result
                             tasks_successful += 1
+                            print(f"Network {tasks_successful} succeeded (Task {task_id}). Progress: {tasks_successful}/{self.amount_to_produce}")
                             
                             last_save_count = self.check_and_save_networks(
                                 tasks_successful, last_save_count, collected_networks
                             )
                     except Exception as e:
-                        print(f"Task {task_id} failed with: {e}")
-            
-            # Force Python garbage collection between pool restarts
-            gc.collect()
+                        print(f"Task {task_id} encountered an error: {e}")
+                    
+                    # Submit a new task only if we still need more networks
+                    if tasks_successful < self.amount_to_produce:
+                        gpu_id = next(gpu_cycle)
+                        future = executor.submit(
+                            self.worker, 
+                            tasks_submitted, 
+                            gpu_id, 
+                            self.model_architecture,
+                            self.model_args,        
+                            self.train_loader, 
+                            self.test_loader, 
+                            self.epochs,
+                            self.learning_rate, 
+                            self.loss_fn, 
+                            self.success_loss,
+                            self.convergence_threshold
+                        )
+                        futures[future] = tasks_submitted
+                        tasks_submitted += 1
+        
+        # Force Python garbage collection after training completes
+        gc.collect()
         
         return collected_networks
 
@@ -392,18 +381,16 @@ class ParallelNetworkTrainer:
             }
         }
         
-        # Add permutation free settings if using PermutationFreeNet
-        if self.model_architecture == PermutationFreeNet:
-            metadata['parameters']['permutation_free_settings'] = {
-                'input_size': self.model_args['input_size'],
-                'hidden_size': self.model_args['hidden_size'],
-                'output_size': self.model_args['output_size'],
-                'num_hidden_layers': self.model_args['num_hidden_layers']
-            }
-        
         # Add model arguments if they exist
         if self.model_args:
-            metadata['parameters']['model_args'] = self.model_args
+            # Convert any tensor values to their native Python types for JSON serialization
+            serializable_args = {}
+            for key, value in self.model_args.items():
+                if isinstance(value, torch.Tensor):
+                    serializable_args[key] = value.tolist() if value.numel() > 1 else float(value)
+                else:
+                    serializable_args[key] = value
+            metadata['parameters']['model_args'] = serializable_args
             
         return metadata
 
@@ -411,6 +398,9 @@ class ParallelNetworkTrainer:
         """Main execution method to run the training process."""
         # Initialize multiprocessing
         mp.set_start_method('spawn', force=True)
+        
+        # Record start time
+        start_time = datetime.now()
         
         # Ensure output directory exists
         os.makedirs(self.output_dir, exist_ok=True)
@@ -423,10 +413,20 @@ class ParallelNetworkTrainer:
         
         # Create experiment metadata
         experiment_metadata = self.create_experiment_metadata()
+        experiment_metadata['start_time'] = start_time.isoformat()
         print(f"Starting training with parameters: {experiment_metadata['parameters']}")
         
         # Run the training
         networks_state_dicts = self.parallel_train_networks()
+        
+        # Record completion time and calculate elapsed time
+        end_time = datetime.now()
+        elapsed_time = end_time - start_time
+        
+        # Add time information to metadata
+        experiment_metadata['completion_time'] = end_time.isoformat()
+        experiment_metadata['elapsed_time_seconds'] = elapsed_time.total_seconds()
+        experiment_metadata['elapsed_time_formatted'] = str(elapsed_time)
         
         # Merge with existing networks if we started with some
         if existing_networks:
@@ -444,72 +444,7 @@ class ParallelNetworkTrainer:
         
         print(f"Training complete. Saved {len(networks_state_dicts)} networks to {self.output_dir}")
         print(f"Metadata saved to {self.output_dir}/metadata.json")
+        print(f"Total training time: {elapsed_time}")
         
         return networks_state_dicts
 
-
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description='Train neural networks in parallel')
-    parser.add_argument('--data', type=str, default='data/simpleReg.csv', help='Path to data CSV file')
-    parser.add_argument('--success-loss', type=float, default=0.1, help='Threshold for successful training')
-    parser.add_argument('--convergence-threshold', type=float, default=1e-1, help='Threshold for determining convergence')
-    parser.add_argument('--amount', type=int, default=100, help='Number of successful networks to produce')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs per network')
-    parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
-    parser.add_argument('--batch-size', type=int, default=1024, help='Batch size for training')
-    parser.add_argument('--gpus', type=int, default=4, help='Number of GPUs to use')
-    parser.add_argument('--output-dir', type=str, default='WorkingNetworks', help='Directory to save networks')
-    parser.add_argument('--output-file-name', type=str, default='working_networks.pt', help='Name of the file to save networks')
-    parser.add_argument('--intermittent-save-size', type=int, default=100, 
-                        help='Save networks after collecting this many successful ones (0 to disable)')
-    parser.add_argument('--model-type', type=str, default='permutation_free', choices=['permutation_free', 'simple'],
-                        help='Type of network architecture to use')
-    
-    # Arguments specific to permutation-free architecture
-    permutation_group = parser.add_argument_group('Permutation-Free Architecture Options')
-    permutation_group.add_argument('--use-masked', action='store_true', default=True, help='Use masked permutation-free architecture')
-    permutation_group.add_argument('--itype', type=str, default='masked', choices=['masked', 'sparse', 'static'], 
-                            help='Type of permutation-free architecture')
-    permutation_group.add_argument('--freeze', action='store_true', default=True, help='Freeze permutation layers')
-    return parser.parse_args()
-
-
-if __name__ == '__main__':
-    args = parse_args()
-    
-    # Determine which model architecture to use
-    if args.model_type == 'simple':
-        model_architecture = SimpleNet
-        model_args = {}  # SimpleNet takes no arguments
-    else:  # default to permutation_free
-        model_architecture = PermutationFreeNet
-        model_args = {
-            'use_masked': args.use_masked,
-            'itype': args.itype,
-            'freeze': args.freeze
-        }
-    
-    # Create the trainer
-    trainer = ParallelNetworkTrainer(
-        data_path=args.data,
-        model_architecture=model_architecture,
-        model_args=model_args,
-        success_loss=args.success_loss,
-        convergence_threshold=args.convergence_threshold,
-        amount_to_produce=args.amount,
-        epochs=args.epochs,
-        learning_rate=args.lr,
-        max_gpus=args.gpus,
-        output_dir=args.output_dir,
-        output_file_name=args.output_file_name,
-        intermittent_save_size=args.intermittent_save_size,
-        batch_size=args.batch_size,
-        # Pass these for backwards compatibility
-        use_masked=args.use_masked,
-        itype=args.itype,
-        freeze=args.freeze
-    )
-    
-    # Run the training
-    trainer.run()

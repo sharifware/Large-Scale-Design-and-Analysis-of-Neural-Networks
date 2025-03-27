@@ -1,13 +1,10 @@
-import importlib.util
 import os 
-from dotenv import load_dotenv
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
 from scipy.stats import norm
 from scipy.optimize import curve_fit
 from sklearn.mixture import GaussianMixture
@@ -698,3 +695,96 @@ class WeightBinning():
         )        
         
         return cluster_indices
+
+    def plot_conditional_probability(self, layer, reference_weight_position, target_weight_position):
+        """
+        Plot a heatmap representing the conditional probability of a target weight
+        having a specific value given the value of a reference weight.
+        
+        Parameters:
+        - layer: Index of the layer to plot (0-indexed).
+        - reference_weight_position: Tuple (neuron_idx, input_idx) for the reference weight (x-axis).
+        - target_weight_position: Tuple (neuron_idx, input_idx) for the target weight (y-axis).
+        
+        Returns:
+        - None, but displays and saves a heatmap visualization.
+        """
+        # We need to access the raw weight data from the networks
+        if not hasattr(self, 'networks'):
+            raise AttributeError("Networks not available. Call load_models() first.")
+        
+        bin_edges = self.layer_bin_ranges[layer]
+        num_bins = len(bin_edges) - 1
+        
+        # Initialize a matrix to store conditional probabilities
+        # Shape: [reference_bins, target_bins]
+        conditional_counts = np.zeros((num_bins, num_bins))
+        
+        # Get the appropriate layer index from the networks
+        fc_layer_idx = 0
+        first_network = self.networks[0]
+        if hasattr(first_network, "network"):
+            layers = list(first_network.network.children())
+        else:
+            layers = list(first_network.children())
+        
+        layer_indices = []
+        for idx, layer_item in enumerate(layers):
+            if isinstance(layer_item, nn.Linear):
+                if fc_layer_idx == layer:
+                    layer_indices.append(idx)
+                    break
+                fc_layer_idx += 1
+                
+        if not layer_indices:
+            raise ValueError(f"Layer {layer} not found in the networks")
+        
+        layer_idx = layer_indices[0]
+        
+        # Extract weights and bin them together
+        for network in self.networks:
+            if hasattr(network, "network"):
+                net_layers = list(network.network.children())
+            else:
+                net_layers = list(network.children())
+            
+            # Get the weight values for this network
+            ref_weight = net_layers[layer_idx].weight.data.numpy()[
+                reference_weight_position[0], reference_weight_position[1]]
+            target_weight = net_layers[layer_idx].weight.data.numpy()[
+                target_weight_position[0], target_weight_position[1]]
+            
+            # Determine which bins these weights fall into
+            ref_bin = np.digitize(ref_weight, bin_edges, right=False) - 1
+            target_bin = np.digitize(target_weight, bin_edges, right=False) - 1
+            
+            # Ensure bin indices are valid
+            if 0 <= ref_bin < num_bins and 0 <= target_bin < num_bins:
+                conditional_counts[ref_bin, target_bin] += 1
+        
+        # Calculate conditional probabilities
+        # For each reference bin, normalize the target bins to sum to 1
+        conditional_probs = np.zeros_like(conditional_counts)
+        for i in range(num_bins):
+            row_sum = np.sum(conditional_counts[i, :])
+            if row_sum > 0:
+                conditional_probs[i, :] = conditional_counts[i, :] / row_sum
+        
+        # Create heatmap
+        plt.figure(figsize=(10, 8))
+        plt.imshow(conditional_probs.T, cmap='viridis', interpolation='nearest', aspect='auto',
+                   extent=[bin_edges[0], bin_edges[-1], bin_edges[0], bin_edges[-1]])
+        
+        plt.colorbar(label='Conditional Probability P(target | reference)')
+        plt.xlabel(f'Reference Weight Value at Position {reference_weight_position}')
+        plt.ylabel(f'Target Weight Value at Position {target_weight_position}')
+        plt.title(f'Conditional Probability Distribution for Layer {layer}')
+        
+        # Add grid lines at bin edges
+        for edge in bin_edges:
+            plt.axhline(y=edge, color='w', linestyle='-', alpha=0.3)
+            plt.axvline(x=edge, color='w', linestyle='-', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(self.save_dir + f"/conditional_prob_layer{layer}_ref{reference_weight_position}_target{target_weight_position}.png")
+        plt.show()
