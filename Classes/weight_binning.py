@@ -696,95 +696,163 @@ class WeightBinning():
         
         return cluster_indices
 
-    def plot_conditional_probability(self, layer, reference_weight_position, target_weight_position):
+    def plot_joint_probability(self, layer, weight1_position, weight2_position):
         """
-        Plot a heatmap representing the conditional probability of a target weight
-        having a specific value given the value of a reference weight.
+        Create a heatmap of the joint probability distribution between two weights.
         
         Parameters:
-        - layer: Index of the layer to plot (0-indexed).
-        - reference_weight_position: Tuple (neuron_idx, input_idx) for the reference weight (x-axis).
-        - target_weight_position: Tuple (neuron_idx, input_idx) for the target weight (y-axis).
+        - layer: Index of the layer (0-indexed)
+        - weight1_position: Tuple (neuron_idx, from_weight_idx) for first weight
+        - weight2_position: Tuple (neuron_idx, from_weight_idx) for second weight
         
         Returns:
-        - None, but displays and saves a heatmap visualization.
+        - fig, ax: The matplotlib figure and axis objects
+        
+        Notes:
+        - The heatmap represents the joint probability of weights falling into specific bins
+        - X-axis corresponds to bins for weight1, Y-axis corresponds to bins for weight2
+        - Requires normalized_distributions to be calculated first
         """
-        # We need to access the raw weight data from the networks
-        if not hasattr(self, 'networks'):
-            raise AttributeError("Networks not available. Call load_models() first.")
+        # Ensure normalized distributions are available
+        if not hasattr(self, 'normalized_distributions'):
+            self.normalize_distributions()
         
+        # Extract probability distributions for the two weights
+        neuron1_idx, from_weight1_idx = weight1_position
+        neuron2_idx, from_weight2_idx = weight2_position
+        
+        dist1 = self.normalized_distributions[layer][neuron1_idx, from_weight1_idx, :]
+        dist2 = self.normalized_distributions[layer][neuron2_idx, from_weight2_idx, :]
+        
+        # Calculate joint probability by taking outer product
+        # P(X=x, Y=y) = P(X=x) * P(Y=y) assuming independence
+        joint_prob = np.outer(dist2, dist1)  # Note: dist2 first to match y-axis (rows)
+        
+        # Create bin labels for better readability
         bin_edges = self.layer_bin_ranges[layer]
-        num_bins = len(bin_edges) - 1
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         
-        # Initialize a matrix to store conditional probabilities
-        # Shape: [reference_bins, target_bins]
-        conditional_counts = np.zeros((num_bins, num_bins))
+        # Format bin labels with reduced precision
+        bin_labels = [f"{val:.2f}" for val in bin_centers]
         
-        # Get the appropriate layer index from the networks
-        fc_layer_idx = 0
-        first_network = self.networks[0]
-        if hasattr(first_network, "network"):
-            layers = list(first_network.network.children())
+        # Create the heatmap figure
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(joint_prob, cmap='viridis', aspect='auto', origin='lower')
+        
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label('Joint Probability')
+        
+        # Configure axis labels and title
+        ax.set_xlabel(f'Weight at position {weight1_position}')
+        ax.set_ylabel(f'Weight at position {weight2_position}')
+        ax.set_title(f'Joint Probability Distribution - Layer {layer}')
+        
+        # Add axis ticks with proper bin labels
+        # Use fewer ticks if there are many bins to prevent overcrowding
+        if len(bin_labels) > 10:
+            x_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
+            y_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
+            ax.set_xticks(x_indices)
+            ax.set_yticks(y_indices)
+            ax.set_xticklabels([bin_labels[i] for i in x_indices], rotation=45)
+            ax.set_yticklabels([bin_labels[i] for i in y_indices])
         else:
-            layers = list(first_network.children())
+            ax.set_xticks(np.arange(len(bin_labels)))
+            ax.set_yticks(np.arange(len(bin_labels)))
+            ax.set_xticklabels(bin_labels, rotation=45)
+            ax.set_yticklabels(bin_labels)
         
-        layer_indices = []
-        for idx, layer_item in enumerate(layers):
-            if isinstance(layer_item, nn.Linear):
-                if fc_layer_idx == layer:
-                    layer_indices.append(idx)
-                    break
-                fc_layer_idx += 1
-                
-        if not layer_indices:
-            raise ValueError(f"Layer {layer} not found in the networks")
+        # Add grid to make it easier to read
+        ax.grid(False)
         
-        layer_idx = layer_indices[0]
-        
-        # Extract weights and bin them together
-        for network in self.networks:
-            if hasattr(network, "network"):
-                net_layers = list(network.network.children())
-            else:
-                net_layers = list(network.children())
-            
-            # Get the weight values for this network
-            ref_weight = net_layers[layer_idx].weight.data.numpy()[
-                reference_weight_position[0], reference_weight_position[1]]
-            target_weight = net_layers[layer_idx].weight.data.numpy()[
-                target_weight_position[0], target_weight_position[1]]
-            
-            # Determine which bins these weights fall into
-            ref_bin = np.digitize(ref_weight, bin_edges, right=False) - 1
-            target_bin = np.digitize(target_weight, bin_edges, right=False) - 1
-            
-            # Ensure bin indices are valid
-            if 0 <= ref_bin < num_bins and 0 <= target_bin < num_bins:
-                conditional_counts[ref_bin, target_bin] += 1
-        
-        # Calculate conditional probabilities
-        # For each reference bin, normalize the target bins to sum to 1
-        conditional_probs = np.zeros_like(conditional_counts)
-        for i in range(num_bins):
-            row_sum = np.sum(conditional_counts[i, :])
-            if row_sum > 0:
-                conditional_probs[i, :] = conditional_counts[i, :] / row_sum
-        
-        # Create heatmap
-        plt.figure(figsize=(10, 8))
-        plt.imshow(conditional_probs.T, cmap='viridis', interpolation='nearest', aspect='auto',
-                   extent=[bin_edges[0], bin_edges[-1], bin_edges[0], bin_edges[-1]])
-        
-        plt.colorbar(label='Conditional Probability P(target | reference)')
-        plt.xlabel(f'Reference Weight Value at Position {reference_weight_position}')
-        plt.ylabel(f'Target Weight Value at Position {target_weight_position}')
-        plt.title(f'Conditional Probability Distribution for Layer {layer}')
-        
-        # Add grid lines at bin edges
-        for edge in bin_edges:
-            plt.axhline(y=edge, color='w', linestyle='-', alpha=0.3)
-            plt.axvline(x=edge, color='w', linestyle='-', alpha=0.3)
-        
+        # Save the figure
         plt.tight_layout()
-        plt.savefig(self.save_dir + f"/conditional_prob_layer{layer}_ref{reference_weight_position}_target{target_weight_position}.png")
-        plt.show()
+        plt.savefig(f"{self.save_dir}/joint_prob_layer{layer}_w1{weight1_position}_w2{weight2_position}.png")
+        
+        return fig, ax
+
+    def plot_conditional_probability(self, layer, given_weight_position, experimental_weight_position):
+        """
+        Create a heatmap of the conditional probability distribution between two weights.
+        
+        Parameters:
+        - layer: Index of the layer (0-indexed)
+        - given_weight_position: Tuple (neuron_idx, from_weight_idx) for the conditioning weight
+        - experimental_weight_position: Tuple (neuron_idx, from_weight_idx) for the weight to predict
+        
+        Returns:
+        - fig, ax: The matplotlib figure and axis objects
+        
+        Notes:
+        - The heatmap represents P(experimental_weight | given_weight)
+        - X-axis corresponds to bins for given_weight, Y-axis corresponds to bins for experimental_weight
+        - Each column in the heatmap sums to 1.0 (representing a valid probability distribution)
+        - Requires normalized_distributions to be calculated first
+        """
+        # Ensure normalized distributions are available
+        if not hasattr(self, 'normalized_distributions'):
+            self.normalize_distributions()
+        
+        # Extract probability distributions for the two weights
+        given_neuron_idx, given_from_weight_idx = given_weight_position
+        exp_neuron_idx, exp_from_weight_idx = experimental_weight_position
+        
+        given_dist = self.normalized_distributions[layer][given_neuron_idx, given_from_weight_idx, :]
+        exp_dist = self.normalized_distributions[layer][exp_neuron_idx, exp_from_weight_idx, :]
+        
+        # Calculate joint probability P(X,Y) assuming independence
+        joint_prob = np.outer(exp_dist, given_dist)  # Note: exp_dist first to match y-axis (rows)
+        
+        # Calculate conditional probability P(Y|X) = P(X,Y)/P(X)
+        # For each column (given weight bin), divide by the probability of that bin
+        conditional_prob = np.zeros_like(joint_prob)
+        for i in range(joint_prob.shape[1]):
+            if given_dist[i] > 0:  # Avoid division by zero
+                conditional_prob[:, i] = joint_prob[:, i] / given_dist[i]
+        
+        # Create bin labels for better readability
+        bin_edges = self.layer_bin_ranges[layer]
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        
+        # Format bin labels with reduced precision
+        bin_labels = [f"{val:.2f}" for val in bin_centers]
+        
+        # Create the heatmap figure
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(conditional_prob, cmap='viridis', aspect='auto', origin='lower', vmin=0, vmax=1)
+        
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label('Conditional Probability P(exp|given)')
+        
+        # Configure axis labels and title
+        ax.set_xlabel(f'Given Weight at position {given_weight_position}')
+        ax.set_ylabel(f'Experimental Weight at position {experimental_weight_position}')
+        ax.set_title(f'Conditional Probability P(exp|given) - Layer {layer}')
+        
+        # Add axis ticks with proper bin labels
+        # Use fewer ticks if there are many bins to prevent overcrowding
+        if len(bin_labels) > 10:
+            x_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
+            y_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
+            ax.set_xticks(x_indices)
+            ax.set_yticks(y_indices)
+            ax.set_xticklabels([bin_labels[i] for i in x_indices], rotation=45)
+            ax.set_yticklabels([bin_labels[i] for i in y_indices])
+        else:
+            ax.set_xticks(np.arange(len(bin_labels)))
+            ax.set_yticks(np.arange(len(bin_labels)))
+            ax.set_xticklabels(bin_labels, rotation=45)
+            ax.set_yticklabels(bin_labels)
+        
+        # Add grid to make it easier to read
+        ax.grid(False)
+        
+        # Save the figure
+        plt.tight_layout()
+        plt.savefig(f"{self.save_dir}/cond_prob_layer{layer}_given{given_weight_position}_exp{experimental_weight_position}.png")
+        
+        return fig, ax
+
+    
