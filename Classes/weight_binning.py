@@ -90,6 +90,30 @@ class WeightBinning():
         print(len(self.networks))
         return self.networks
 
+    def store_network_weights(self, network_fc_indices):
+        """
+        Extract weight data from all networks for the specified fully connected layers.
+        
+        Parameters:
+        - network_fc_indices: List of indices corresponding to fully connected layers
+        
+        Returns:
+        - network_weights: A list of lists, where each inner list contains the weight matrices
+          for a specific layer across all networks
+        """
+        network_weights = []
+        for index, layer_index in enumerate(network_fc_indices):
+            network_weights_per_layer = []
+            for network in self.networks:
+                if hasattr(network, "network"):
+                    net_layers = list(network.network.children())
+                else:
+                    net_layers = list(network.children())
+                network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
+            network_weights.append(network_weights_per_layer)
+        
+        return network_weights
+        
     def store_weights(self):
         """
         Stores and bins the weight distributions loaded networks for further analysis.
@@ -105,49 +129,24 @@ class WeightBinning():
         Returns:
             None
         """
-
-        #for each fully connected layer, create matrix of shape (N, M, B) where
-        #N = num neurons in layer
-        #M = num neurons in previous layer
-        #B = number of bins
-        self.layer_weight_distributions = []
-        self.layer_bin_ranges = []
-        network_fc_indices = []
-        
-        # Get the appropriate layers from the first network
+        # First get the fully connected layer indices
         first_network = self.networks[0]
-        if hasattr(first_network, "network"):
-            layers = list(first_network.network.children())
-        else:
-            layers = list(first_network.children())
+        network_fc_indices, layers = self.find_fc_layers(first_network)
         
-        # Find linear layers and create bin ranges
-        fc_layer_idx = 0
-        for index, layer in enumerate(layers):
-            if isinstance(layer, nn.Linear):
-                layerMin = self.__getMinOrMax__(self.networks, fc_layer_idx, True)
-                layerMax = self.__getMinOrMax__(self.networks, fc_layer_idx, False)
-                
-                network_fc_indices.append(index)
-                layer_shape = layer.weight.shape
-                self.layer_weight_distributions.append(np.zeros(layer_shape + (self.NUM_BINS,), dtype=int))
-                #subtract 1 to make 0-indexed
-                bin_edges = np.histogram_bin_edges(a=[], bins=self.NUM_BINS, range=(layerMin, layerMax))
-                self.layer_bin_ranges.append(bin_edges)
-                
-                fc_layer_idx += 1
+        # Get the bin ranges using those indices
+        self.layer_bin_ranges = self.get_layer_bin_ranges(network_fc_indices)
+        
+        # Initialize weight distributions
+        self.layer_weight_distributions = []
+        for layer_idx, fc_idx in enumerate(network_fc_indices):
+            layer = layers[fc_idx]
+            layer_shape = layer.weight.shape
+            self.layer_weight_distributions.append(np.zeros(layer_shape + (self.NUM_BINS,), dtype=int))
         
         # Store weights from all networks
-        network_weights = []
-        for index, layer_index in enumerate(network_fc_indices):
-            network_weights_per_layer = []
-            for network in self.networks:
-                if hasattr(network, "network"):
-                    net_layers = list(network.network.children())
-                else:
-                    net_layers = list(network.children())
-                network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
-            network_weights.append(network_weights_per_layer)
+        network_weights = self.store_network_weights(network_fc_indices)
+        print(len(network_weights[0]))
+        print(network_weights[0][0])
 
         #Populate the weight distributions in corresponding bins with the weights from the loaded networks
         for layer_num, layer_distribution in enumerate(self.layer_weight_distributions):
@@ -696,6 +695,62 @@ class WeightBinning():
         
         return cluster_indices
 
+    def _plot_probability_heatmap(self, prob_matrix, bin_edges, layer, position1, position2, title, colorbar_label, filename_prefix, cmap='viridis'):
+        """
+        Helper method to plot a probability heatmap (joint or conditional) with bin edges.
+        
+        Parameters:
+        - prob_matrix: 2D array of probability values to plot
+        - bin_edges: Array of bin edge values
+        - layer: Index of the layer
+        - position1: Tuple (neuron_idx, from_weight_idx) for x-axis
+        - position2: Tuple (neuron_idx, from_weight_idx) for y-axis
+        - title: Title for the plot
+        - colorbar_label: Label for the colorbar
+        - filename_prefix: Prefix for the saved file
+        - cmap: Colormap to use (default: 'viridis')
+        
+        Returns:
+        - fig, ax: The matplotlib figure and axis objects
+        """
+        # Create the heatmap figure
+        fig, ax = plt.subplots(figsize=(10, 8))
+        
+        # Assert that bin edges are evenly spaced
+        bin_widths = np.diff(bin_edges)
+        avg_width = np.mean(bin_widths)
+        max_deviation = np.max(np.abs(bin_widths - avg_width))
+        tolerance = 1e-10  # Numeric tolerance for floating point comparison
+        assert max_deviation < tolerance, f"Bin edges are not evenly spaced. Max deviation: {max_deviation}"
+        
+        # For use with shading='flat', match dimensions properly
+        X, Y = np.meshgrid(bin_edges, bin_edges)
+        im = ax.pcolormesh(X, Y, prob_matrix, cmap=cmap, shading='flat')
+        
+        # Set grid lines to align with bin edges
+        ax.set_xticks(bin_edges)
+        ax.set_yticks(bin_edges)
+        ax.set_xticklabels([f"{val:.2f}" for val in bin_edges], rotation=45)
+        ax.set_yticklabels([f"{val:.2f}" for val in bin_edges])
+        
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(colorbar_label)
+        
+        # Configure axis labels and title
+        ax.set_xlabel(f'Weight at position {position1}')
+        ax.set_ylabel(f'Weight at position {position2}')
+        ax.set_title(title)
+        
+        # Add grid lines at every bin edge
+        ax.grid(True)
+        
+        # Save the figure
+        plt.tight_layout()
+        plt.savefig(f"{self.save_dir}/{filename_prefix}_layer{layer}_{position1}_{position2}.png")
+        
+        return fig, ax
+
     def plot_joint_probability(self, layer, weight1_position, weight2_position):
         """
         Create a heatmap of the joint probability distribution between two weights.
@@ -728,49 +783,25 @@ class WeightBinning():
         # P(X=x, Y=y) = P(X=x) * P(Y=y) assuming independence
         joint_prob = np.outer(dist2, dist1)  # Note: dist2 first to match y-axis (rows)
         
-        # Create bin labels for better readability
+        # Get bin edges for better readability
         bin_edges = self.layer_bin_ranges[layer]
-        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         
-        # Format bin labels with reduced precision
-        bin_labels = [f"{val:.2f}" for val in bin_centers]
+        # Assert that the number of bin edges matches NUM_BINS + 1
+        # (NUM_BINS bins require NUM_BINS + 1 edges)
+        assert len(bin_edges) == len(dist1) + 1, f"Number of bin edges ({len(bin_edges)}) does not match NUM_BINS + 1 ({len(dist1) + 1})"
         
-        # Create the heatmap figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        im = ax.imshow(joint_prob, cmap='viridis', aspect='auto', origin='lower')
-        
-        # Add colorbar
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label('Joint Probability')
-        
-        # Configure axis labels and title
-        ax.set_xlabel(f'Weight at position {weight1_position}')
-        ax.set_ylabel(f'Weight at position {weight2_position}')
-        ax.set_title(f'Joint Probability Distribution - Layer {layer}')
-        
-        # Add axis ticks with proper bin labels
-        # Use fewer ticks if there are many bins to prevent overcrowding
-        if len(bin_labels) > 20:
-            x_indices = np.linspace(0, len(bin_labels)-1, 20, dtype=int)
-            y_indices = np.linspace(0, len(bin_labels)-1, 20, dtype=int)
-            ax.set_xticks(x_indices)
-            ax.set_yticks(y_indices)
-            ax.set_xticklabels([bin_labels[i] for i in x_indices], rotation=45)
-            ax.set_yticklabels([bin_labels[i] for i in y_indices])
-        else:
-            ax.set_xticks(np.arange(len(bin_labels)))
-            ax.set_yticks(np.arange(len(bin_labels)))
-            ax.set_xticklabels(bin_labels, rotation=45)
-            ax.set_yticklabels(bin_labels)
-        
-        # Add grid to make it easier to read
-        ax.grid(True)
-        
-        # Save the figure
-        plt.tight_layout()
-        plt.savefig(f"{self.save_dir}/joint_prob_layer{layer}_w1{weight1_position}_w2{weight2_position}.png")
-        
-        return fig, ax
+        # Use plotting helper method
+        return self._plot_probability_heatmap(
+            prob_matrix=joint_prob,
+            bin_edges=bin_edges,
+            layer=layer,
+            position1=weight1_position,
+            position2=weight2_position,
+            title=f'Joint Probability Distribution - Layer {layer}',
+            colorbar_label='Joint Probability',
+            filename_prefix='joint_prob',
+            cmap='viridis'
+        )
 
     def plot_conditional_probability(self, layer, given_weight_position, experimental_weight_position):
         """
@@ -811,48 +842,75 @@ class WeightBinning():
             if given_dist[i] > 0:  # Avoid division by zero
                 conditional_prob[:, i] = joint_prob[:, i] / given_dist[i]
         
-        # Create bin labels for better readability
+        # Get bin edges
         bin_edges = self.layer_bin_ranges[layer]
-        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         
-        # Format bin labels with reduced precision
-        bin_labels = [f"{val:.2f}" for val in bin_centers]
+        # Assert that the number of bin edges matches NUM_BINS + 1
+        assert len(bin_edges) == len(given_dist) + 1, f"Number of bin edges ({len(bin_edges)}) does not match NUM_BINS + 1 ({len(given_dist) + 1})"
         
-        # Create the heatmap figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        im = ax.imshow(conditional_prob, cmap='plasma', aspect='auto', origin='lower')  
+        # Use plotting helper method
+        return self._plot_probability_heatmap(
+            prob_matrix=conditional_prob,
+            bin_edges=bin_edges,
+            layer=layer,
+            position1=given_weight_position,
+            position2=experimental_weight_position,
+            title=f'Conditional Probability P(exp|given) - Layer {layer}',
+            colorbar_label='Conditional Probability P(exp|given)',
+            filename_prefix='cond_prob',
+            cmap='plasma'
+        )
+
+    def find_fc_layers(self, network):
+        """
+        Find the indices of fully connected (Linear) layers in a network.
         
-        # Add colorbar
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label('Conditional Probability P(exp|given)')
+        Parameters:
+        - network: A PyTorch neural network
         
-        # Configure axis labels and title
-        ax.set_xlabel(f'Given Weight at position {given_weight_position}')
-        ax.set_ylabel(f'Experimental Weight at position {experimental_weight_position}')
-        ax.set_title(f'Conditional Probability P(exp|given) - Layer {layer}')
-        
-        # Add axis ticks with proper bin labels
-        # Use fewer ticks if there are many bins to prevent overcrowding
-        if len(bin_labels) > 10:
-            x_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
-            y_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
-            ax.set_xticks(x_indices)
-            ax.set_yticks(y_indices)
-            ax.set_xticklabels([bin_labels[i] for i in x_indices], rotation=45)
-            ax.set_yticklabels([bin_labels[i] for i in y_indices])
+        Returns:
+        - fc_indices: A list of indices where nn.Linear layers are found
+        - layers: The list of all layers in the network
+        """
+        # Get the appropriate layers from the network
+        if hasattr(network, "network"):
+            layers = list(network.network.children())
         else:
-            ax.set_xticks(np.arange(len(bin_labels)))
-            ax.set_yticks(np.arange(len(bin_labels)))
-            ax.set_xticklabels(bin_labels, rotation=45)
-            ax.set_yticklabels(bin_labels)
+            layers = list(network.children())
         
-        # Add grid to make it easier to read
-        ax.grid(False)
+        # Find indices of Linear layers
+        fc_indices = []
+        for index, layer in enumerate(layers):
+            if isinstance(layer, nn.Linear):
+                fc_indices.append(index)
         
-        # Save the figure
-        plt.tight_layout()
-        plt.savefig(f"{self.save_dir}/cond_prob_layer{layer}_given{given_weight_position}_exp{experimental_weight_position}.png")
+        return fc_indices, layers
         
-        return fig, ax
+    def get_layer_bin_ranges(self, fc_indices):
+        """
+        Calculate bin ranges for each fully connected layer based on min/max weight values.
+        
+        Parameters:
+        - fc_indices: List of indices corresponding to fully connected layers
+        
+        Returns:
+        - layer_bin_ranges: A list of bin edges for each fully connected layer
+        """
+        if not hasattr(self, 'networks') or len(self.networks) == 0:
+            raise ValueError("Networks not loaded. Call load_models() first.")
+            
+        # Initialize layer_bin_ranges
+        layer_bin_ranges = []
+        
+        # Calculate bin ranges for each FC layer
+        for fc_idx, _ in enumerate(fc_indices):
+            layerMin = self.__getMinOrMax__(self.networks, fc_idx, True)
+            layerMax = self.__getMinOrMax__(self.networks, fc_idx, False)
+            
+            # Calculate bin edges
+            bin_edges = np.histogram_bin_edges(a=[], bins=self.NUM_BINS, range=(layerMin, layerMax))
+            layer_bin_ranges.append(bin_edges)
+        
+        return layer_bin_ranges
 
     
