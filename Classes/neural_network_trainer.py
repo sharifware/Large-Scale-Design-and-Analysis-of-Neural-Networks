@@ -149,8 +149,12 @@ class NeuralNetworkTrainer:
                 # Then get the state dict (which will now be on CPU)
                 cpu_state_dict = model.state_dict()
                 return cpu_state_dict, float(train_loss_history[-1])
-            else:
+            elif not converged:
+                # Returning None for loss history and None for the state dict means it did not converge
                 return None, None
+            else:
+                # Returning None for the state dict and the loss history means it did not converge
+                return None, float(train_loss_history[-1])
         finally:
             # Cleanup - safely delete only if they exist
             if model is not None:
@@ -172,10 +176,6 @@ class NeuralNetworkTrainer:
             torch.cuda.set_device(0)  # Explicitly set device to avoid auto assignment issues
             device = torch.device("cuda:0")
             
-            # Log open file descriptors at start
-            fds_start = len(os.listdir('/proc/self/fd'))
-            print(f"Task {task_id} start: open fds: {fds_start}")
-            
             # Add more aggressive garbage collection
             gc.collect()
             torch.cuda.empty_cache()
@@ -185,18 +185,12 @@ class NeuralNetworkTrainer:
                 num_epochs, learning_rate, loss_fn, device,
                 success_loss, convergence_threshold, task_id
             )
-            if result is not None:
+            if result is not None and final_loss is not None:
                 # Ensure all tensors in state_dict are on CPU
                 result = {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in result.items()}
                 # Convert loss to Python native float
                 final_loss = float(final_loss)
-            
-            # Log open file descriptors at end
-            fds_end = len(os.listdir('/proc/self/fd'))
-            print(f"Task {task_id} end: open fds: {fds_end}")
-            if fds_end > fds_start:
-                print(f"Warning: Task {task_id} increased open fds by {fds_end - fds_start}")
-                
+
             return result, final_loss
         except Exception as e:
             print(f"Worker error (Task {task_id}, GPU {gpu_id}): {e}")
@@ -237,7 +231,7 @@ class NeuralNetworkTrainer:
         tasks_submitted = 0
         tasks_successful = 0
         last_save_count = 0
-        
+        failed_networks = []
         with ProcessPoolExecutor(max_workers=self.max_gpus) as executor:
             futures = {}
             gpu_cycle = cycle(range(self.max_gpus))
@@ -284,10 +278,18 @@ class NeuralNetworkTrainer:
                             last_save_count = self.check_and_save_networks(
                                 tasks_successful, last_save_count, collected_networks
                             )
+                        elif result is None and final_loss is not None:
+                            # Failed due to loss being too high
+                            assert final_loss > self.success_loss
+                            failed_networks.append(final_loss)
+                        else:
+                            # Failed due to not converging
+                            failed_networks.append(None)
+                            
                     except Exception as e:
                         print(f"Task {task_id} encountered an error: {e}")
                     
-                    # Submit a new task only if we still need more networks
+                    # Submit a new task only if more networks are needed
                     if tasks_successful < self.amount_to_produce:
                         gpu_id = next(gpu_cycle)
                         future = executor.submit(
@@ -310,7 +312,7 @@ class NeuralNetworkTrainer:
         # Force Python garbage collection after training completes
         gc.collect()
         
-        return collected_networks
+        return collected_networks, failed_networks
 
     @staticmethod
     def save_networks(save_path, networks_to_save, append=False):
@@ -417,7 +419,26 @@ class NeuralNetworkTrainer:
         print(f"Starting training with parameters: {experiment_metadata['parameters']}")
         
         # Run the training
-        networks_state_dicts = self.parallel_train_networks()
+        networks_state_dicts, failed_networks = self.parallel_train_networks()
+        
+        # Record failed networks information
+        num_failed_networks = len(failed_networks)
+        
+        # Calculate average loss for failed networks if any exist
+        non_none_losses = [loss for loss in failed_networks if loss is not None]
+        avg_failed_loss = 0
+        if non_none_losses:
+            avg_failed_loss = sum(non_none_losses) / len(non_none_losses)
+        
+        # Add failed networks information to metadata
+        experiment_metadata['failed_networks_count'] = num_failed_networks
+        experiment_metadata['failed_networks_non_convergance_count'] = len(failed_networks) - len(non_none_losses)
+        experiment_metadata['failed_networks_average_loss'] = avg_failed_loss
+        
+        # Print failed networks information
+        print(f"Number of failed networks: {num_failed_networks}")
+        print(f"Number of failed networks with loss (not None): {len(non_none_losses)}")
+        print(f"Average loss of failed networks (with loss): {avg_failed_loss:.6f}")
         
         # Record completion time and calculate elapsed time
         end_time = datetime.now()

@@ -750,9 +750,9 @@ class WeightBinning():
         
         # Add axis ticks with proper bin labels
         # Use fewer ticks if there are many bins to prevent overcrowding
-        if len(bin_labels) > 10:
-            x_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
-            y_indices = np.linspace(0, len(bin_labels)-1, 10, dtype=int)
+        if len(bin_labels) > 20:
+            x_indices = np.linspace(0, len(bin_labels)-1, 20, dtype=int)
+            y_indices = np.linspace(0, len(bin_labels)-1, 20, dtype=int)
             ax.set_xticks(x_indices)
             ax.set_yticks(y_indices)
             ax.set_xticklabels([bin_labels[i] for i in x_indices], rotation=45)
@@ -764,7 +764,7 @@ class WeightBinning():
             ax.set_yticklabels(bin_labels)
         
         # Add grid to make it easier to read
-        ax.grid(False)
+        ax.grid(True)
         
         # Save the figure
         plt.tight_layout()
@@ -820,7 +820,7 @@ class WeightBinning():
         
         # Create the heatmap figure
         fig, ax = plt.subplots(figsize=(10, 8))
-        im = ax.imshow(conditional_prob, cmap='viridis', aspect='auto', origin='lower', vmin=0, vmax=1)
+        im = ax.imshow(conditional_prob, cmap='plasma', aspect='auto', origin='lower')  
         
         # Add colorbar
         cbar = fig.colorbar(im, ax=ax)
