@@ -14,9 +14,9 @@ from scipy.stats import norm
 
 class WeightBinning():
 
-    def __init__(self, architecture, save_dir, load_path):
+    def __init__(self, architecture, save_dir, load_path, num_bins=30):
         os.makedirs(save_dir, exist_ok=True) 
-        self.NUM_BINS = 30
+        self.num_bins = num_bins
         self.save_dir = save_dir
         self.load_path = load_path
         self.architecture = architecture
@@ -114,9 +114,68 @@ class WeightBinning():
         
         return network_weights
     
-    def populate_bins(self, network_weights, layer_weight_distributions_networks_skeleton):
+    def bin_single_weight(self, weight_position, network_weights_layer, bin_ranges):
         """
-        Populate the weight distribution bins with networks whose weights fall into each bin.
+        Bin a single weight position across a set of networks.
+        
+        Parameters:
+        - weight_position: Tuple (neuron_idx, from_weight_idx)
+        - network_weights_layer: Weight matrices for this layer across all networks, shape [networks][neurons][weights]
+        - bin_ranges: Bin edge values for this layer
+        
+        Returns:
+        - binned_networks: A list of lists where each inner list contains networks falling into a specific bin
+                          for this weight position. Shape is [num_bins][networks_per_bin].
+        """
+        # Initialize empty lists for each bin
+        binned_networks = [[] for _ in range(self.num_bins)]
+        
+        for net_idx, network in enumerate(network_weights_layer):
+            # Select network[neuron i, incoming weight j]
+            weight = network[weight_position[0]][weight_position[1]]
+            corresponding_bin = np.digitize(weight, bin_ranges, right=False) - 1
+            
+            # Check if weight is in bin range
+            assert corresponding_bin >= 0 and corresponding_bin < self.num_bins, f"Weight {weight} out of bin range at neuron {weight_position[0]}, incoming weight {weight_position[1]}"
+            
+            # Add network to the appropriate bin
+            binned_networks[corresponding_bin].append(network)
+        
+        return binned_networks
+    def populate_bins_single_layer(self, layer_num, layer_networks_skeleton, network_weights_layer, bin_ranges):
+        """
+        Populate the weight distribution bins for a single layer with networks whose weights fall into each bin.
+        
+        Parameters:
+        - layer_num: Index of the layer being processed
+        - layer_networks_skeleton: Empty structure for the layer, shape [neurons][incoming_weights][num_bins]
+        - network_weights_layer: Weight matrices for this layer across all networks, shape [networks][neurons][weights]
+        - bin_ranges: Bin edge values for this layer
+        
+        Returns:
+        - layer_networks: The filled network distribution structure for this layer
+        
+        Notes:
+        - Each bin contains a list of networks whose weights fall within that bin's range.
+        """
+        layer_networks = layer_networks_skeleton.copy()
+        
+        # Iterate over neurons in layer
+        for i in range(layer_networks.shape[0]):
+            # Iterate over incoming weights to neuron
+            for j in range(layer_networks.shape[1]):
+                # Bin the single weight position
+                binned_networks = self.bin_single_weight((i, j), network_weights_layer, bin_ranges)
+                
+                # Store the binned networks in the layer structure
+                for bin_idx, networks in enumerate(binned_networks):
+                    layer_networks[i][j][bin_idx] = networks
+        
+        return layer_networks
+    
+    def populate_all_bins(self, network_weights, layer_weight_distributions_networks_skeleton):
+        """
+        Populate the weight distribution bins for all layers with networks whose weights fall into each bin.
         
         This function takes the weight data from the set of networks and categorizes each weight
         into the appropriate bin based on its value, storing the network in the corresponding bin.
@@ -138,23 +197,17 @@ class WeightBinning():
         # layer bin ranges should exist and have the same number of layers as the skeleton
         assert len(self.layer_bin_ranges) == len(layer_weight_distributions_networks_skeleton)
 
-        layer_weight_distributions_networks = layer_weight_distributions_networks_skeleton.copy()
-
-        for layer_num, layer_distribution in enumerate(layer_weight_distributions_networks_skeleton):
-            #iterate over neurons in layer
-            for i in range(layer_distribution.shape[0]):  
-                #iterate over incoming weights to neuron
-                for j in range(layer_distribution.shape[1]):  # incoming weights
-                    # for this weight, iterate over each network to add data to corresponding bin
-                    for net_idx, network in enumerate(network_weights[layer_num]):
-                        #select network[neuron i, incoming weight j]
-                        weight = network[i][j]
-                        corresponding_bin = np.digitize(weight, self.layer_bin_ranges[layer_num], right=False) - 1
-                        
-                        #check if weight is in bin range
-                        assert corresponding_bin >= 0 and corresponding_bin < self.NUM_BINS, "Weight out of bin range"
-                        #add to bin count
-                        layer_weight_distributions_networks[layer_num][i][j][corresponding_bin].append(network)
+        layer_weight_distributions_networks = []
+        
+        # Process each layer
+        for layer_num, layer_skeleton in enumerate(layer_weight_distributions_networks_skeleton):
+            layer_networks = self.populate_bins_single_layer(
+                layer_num=layer_num,
+                layer_networks_skeleton=layer_skeleton,
+                network_weights_layer=network_weights[layer_num],
+                bin_ranges=self.layer_bin_ranges[layer_num]
+            )
+            layer_weight_distributions_networks.append(layer_networks)
                         
         return layer_weight_distributions_networks
     
@@ -174,11 +227,11 @@ class WeightBinning():
         
         for layer in layer_weight_distributions_networks:
             layer_shape = layer.shape[:-1]  # Remove the bin dimension
-            layer_counts = np.zeros(layer_shape + (self.NUM_BINS,), dtype=int)
+            layer_counts = np.zeros(layer_shape + (self.num_bins,), dtype=int)
             
             for i in range(layer_shape[0]):
                 for j in range(layer_shape[1]):
-                    for bin_idx in range(self.NUM_BINS):
+                    for bin_idx in range(self.num_bins):
                         # Count networks in this bin
                         layer_counts[i, j, bin_idx] = len(layer[i, j, bin_idx])
             
@@ -186,6 +239,26 @@ class WeightBinning():
             
         return layer_weight_distributions_counts
     
+    def create_layer_skeleton(self, layer_shape):
+        """
+        Create an empty skeleton structure for a single layer's weight distribution.
+        
+        Parameters:
+        - layer_shape: Shape of the layer's weight matrix (neurons, incoming_weights)
+        
+        Returns:
+        - layer_skeleton: An initialized empty structure for storing networks,
+          with shape [neurons][incoming_weights][num_bins] where each element is an empty list
+        """
+        # Create empty array with objects
+        layer_skeleton = np.empty(layer_shape + (self.num_bins,), dtype=object)
+        
+        # Initialize each element to be an empty list
+        for index in np.ndindex(layer_skeleton.shape):
+            layer_skeleton[index] = []
+            
+        return layer_skeleton
+        
     def store_weights(self):
         """
         Stores and bins the weight distributions loaded networks for further analysis.
@@ -216,22 +289,147 @@ class WeightBinning():
             layer = layers[fc_idx]
             layer_shape = layer.weight.shape
             
-            # Create empty array with objects
-            array = np.empty(layer_shape + (self.NUM_BINS,), dtype=object)
-            # Initialize each element to be an empty list
-            for index in np.ndindex(array.shape):
-                array[index] = []
-            layer_weight_distributions_networks_skeleton.append(array)
+            # Create skeleton for this layer
+            layer_skeleton = self.create_layer_skeleton(layer_shape)
+            layer_weight_distributions_networks_skeleton.append(layer_skeleton)
         
         # Store weights from all networks
         network_weights = self.store_network_weights(network_fc_indices)
 
         # Populate bins with networks
-        self.layer_weight_distributions_networks = self.populate_bins(network_weights, layer_weight_distributions_networks_skeleton)
+        self.layer_weight_distributions_networks = self.populate_all_bins(network_weights, layer_weight_distributions_networks_skeleton)
         
         # Derive counts from networks
         self.layer_weight_distributions_counts = self.derive_counts_from_networks(self.layer_weight_distributions_networks)
         
+    def create_conditional_weight_matrix(self, layer, given_weight_position, experimental_weight_position):
+        
+        # Assert that weight positions are tuples
+        assert isinstance(given_weight_position, tuple), "given_weight_position must be a tuple (neuron_idx, from_weight_idx)"
+        assert isinstance(experimental_weight_position, tuple), "experimental_weight_position must be a tuple (neuron_idx, from_weight_idx)"
+        
+        
+        #get the networks which fall into the given bin
+        given_distribution_networks = self.layer_weight_distributions_networks[layer][given_weight_position[0]][given_weight_position[1]][:]
+
+        conditional_counts_matrix = np.zeros((self.num_bins, self.num_bins))
+        #for each bin in the given distribution, bin the set of networks which fall into that bin
+        for given_bin_idx, given_bin in enumerate(given_distribution_networks):
+            if len(given_bin) == 0:
+                # No networks in this bin, create empty distribution
+                continue
+            else:
+                # layer_shape = given_bin[0].shape
+                # skeleton = self.create_layer_skeleton(layer_shape)
+                # binned_networks_bin_subsest = self.populate_bins_single_layer(layer, skeleton, network, self.layer_bin_ranges[layer])
+                experimental_binned_networks = self.bin_single_weight(experimental_weight_position, given_bin, self.layer_bin_ranges[layer])
+                for experimental_bin_idx, experimental_bin in enumerate(experimental_binned_networks):
+                    conditional_counts_matrix[given_bin_idx][experimental_bin_idx] = len(experimental_bin)
+        return conditional_counts_matrix
+
+    def plot_heatmap(self, matrix_data, bin_edges, layer, position1, position2, title, colorbar_label, filename_prefix, cmap='viridis'):
+        """
+        Helper method to plot a heatmap with bin edges for weight analysis.
+        
+        Parameters:
+        - matrix_data: 2D array of values to plot (could be probabilities, counts, etc.)
+        - bin_edges: Array of bin edge values
+        - layer: Index of the layer
+        - position1: Tuple (neuron_idx, from_weight_idx) for x-axis
+        - position2: Tuple (neuron_idx, from_weight_idx) for y-axis
+        - title: Title for the plot
+        - colorbar_label: Label for the colorbar
+        - filename_prefix: Prefix for the saved file
+        - cmap: Colormap to use (default: 'viridis')
+        
+        Returns:
+        - fig, ax: The matplotlib figure and axis objects
+        """
+        # Create the heatmap figure
+        fig, ax = plt.subplots(figsize=(10, 8))
+        
+        # Assert that bin edges are evenly spaced
+        bin_widths = np.diff(bin_edges)
+        avg_width = np.mean(bin_widths)
+        max_deviation = np.max(np.abs(bin_widths - avg_width))
+        tolerance = 1e-10  # Numeric tolerance for floating point comparison
+        assert max_deviation < tolerance, f"Bin edges are not evenly spaced. Max deviation: {max_deviation}"
+        
+        # For use with shading='flat', match dimensions properly
+        X, Y = np.meshgrid(bin_edges, bin_edges)
+        im = ax.pcolormesh(X, Y, matrix_data, cmap=cmap, shading='flat')
+        
+        # Set grid lines to align with bin edges
+        ax.set_xticks(bin_edges)
+        ax.set_yticks(bin_edges)
+        ax.set_xticklabels([f"{val:.2f}" for val in bin_edges], rotation=45)
+        ax.set_yticklabels([f"{val:.2f}" for val in bin_edges])
+        
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(colorbar_label)
+        
+        # Configure axis labels and title
+        ax.set_xlabel(f'Weight at position {position1}')
+        ax.set_ylabel(f'Weight at position {position2}')
+        ax.set_title(title)
+        
+        # Add grid lines at every bin edge
+        ax.grid(True)
+        
+        # Save the figure
+        plt.tight_layout()
+        plt.savefig(f"{self.save_dir}/{filename_prefix}_layer{layer}_{position1}_{position2}.png")
+        
+        return fig, ax
+
+    def plot_conditional_weight_matrix(self, layer, given_weight_position, experimental_weight_position):
+        """
+        Plot a heatmap of the conditional weight distributions between two weights.
+        
+        This function calculates how the distribution of one weight depends on the value
+        of another weight by analyzing the conditional distribution across networks.
+        
+        Parameters:
+        - layer: Index of the layer (0-indexed)
+        - given_weight_position: Tuple (neuron_idx, from_weight_idx) for the conditioning weight
+        - experimental_weight_position: Tuple (neuron_idx, from_weight_idx) for the weight to predict
+        
+        Returns:
+        - fig, ax: The matplotlib figure and axis objects
+        
+        Notes:
+        - The heatmap rows (y-axis) represent bins of the given (conditioning) weight
+        - The heatmap columns (x-axis) represent bins of the experimental (predicted) weight
+        - Each cell shows how many networks have the experimental weight in a certain bin
+          given that the conditioning weight is in a specific bin
+        """
+        # Get the conditional counts matrix
+        conditional_matrix = self.create_conditional_weight_matrix(
+            layer, given_weight_position, experimental_weight_position
+        )
+        
+        # Get bin edges for this layer
+        bin_edges = self.layer_bin_ranges[layer]
+        
+        # Create descriptive title and labels
+        title = f"Conditional Distribution P(w{experimental_weight_position} | w{given_weight_position})"
+        colorbar_label = "Count"
+        filename_prefix = f"conditional_weight_matrix_layer{layer}"
+        
+        # Plot the heatmap using the plotting method
+        return self.plot_heatmap(
+            matrix_data=conditional_matrix,
+            bin_edges=bin_edges,
+            layer=layer,
+            position1=given_weight_position,
+            position2=experimental_weight_position,
+            title=title,
+            colorbar_label=colorbar_label,
+            filename_prefix=filename_prefix,
+            cmap='plasma'  # Using plasma colormap for conditional counts
+        )
+
     def plot_weight_bins(self, weight_distributions, layer, weight_position, bin_edges):
             """
             Parameters:
@@ -761,62 +959,6 @@ class WeightBinning():
         
         return cluster_indices
 
-    def _plot_probability_heatmap(self, prob_matrix, bin_edges, layer, position1, position2, title, colorbar_label, filename_prefix, cmap='viridis'):
-        """
-        Helper method to plot a probability heatmap (joint or conditional) with bin edges.
-        
-        Parameters:
-        - prob_matrix: 2D array of probability values to plot
-        - bin_edges: Array of bin edge values
-        - layer: Index of the layer
-        - position1: Tuple (neuron_idx, from_weight_idx) for x-axis
-        - position2: Tuple (neuron_idx, from_weight_idx) for y-axis
-        - title: Title for the plot
-        - colorbar_label: Label for the colorbar
-        - filename_prefix: Prefix for the saved file
-        - cmap: Colormap to use (default: 'viridis')
-        
-        Returns:
-        - fig, ax: The matplotlib figure and axis objects
-        """
-        # Create the heatmap figure
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # Assert that bin edges are evenly spaced
-        bin_widths = np.diff(bin_edges)
-        avg_width = np.mean(bin_widths)
-        max_deviation = np.max(np.abs(bin_widths - avg_width))
-        tolerance = 1e-10  # Numeric tolerance for floating point comparison
-        assert max_deviation < tolerance, f"Bin edges are not evenly spaced. Max deviation: {max_deviation}"
-        
-        # For use with shading='flat', match dimensions properly
-        X, Y = np.meshgrid(bin_edges, bin_edges)
-        im = ax.pcolormesh(X, Y, prob_matrix, cmap=cmap, shading='flat')
-        
-        # Set grid lines to align with bin edges
-        ax.set_xticks(bin_edges)
-        ax.set_yticks(bin_edges)
-        ax.set_xticklabels([f"{val:.2f}" for val in bin_edges], rotation=45)
-        ax.set_yticklabels([f"{val:.2f}" for val in bin_edges])
-        
-        # Add colorbar
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label(colorbar_label)
-        
-        # Configure axis labels and title
-        ax.set_xlabel(f'Weight at position {position1}')
-        ax.set_ylabel(f'Weight at position {position2}')
-        ax.set_title(title)
-        
-        # Add grid lines at every bin edge
-        ax.grid(True)
-        
-        # Save the figure
-        plt.tight_layout()
-        plt.savefig(f"{self.save_dir}/{filename_prefix}_layer{layer}_{position1}_{position2}.png")
-        
-        return fig, ax
-
     def find_fc_layers(self, network):
         """
         Find the indices of fully connected (Linear) layers in a network.
@@ -864,7 +1006,7 @@ class WeightBinning():
             layerMax = self.__getMinOrMax__(self.networks, fc_idx, False)
             
             # Calculate bin edges
-            bin_edges = np.histogram_bin_edges(a=[], bins=self.NUM_BINS, range=(layerMin, layerMax))
+            bin_edges = np.histogram_bin_edges(a=[], bins=self.num_bins, range=(layerMin, layerMax))
             layer_bin_ranges.append(bin_edges)
         
         return layer_bin_ranges
