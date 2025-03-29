@@ -60,17 +60,17 @@ class WeightBinning():
         Get the layer weight distributions data structure.
         
         Returns:
-        - layer_weight_distributions: A list of 3D numpy arrays, one per layer, with shape 
+        - layer_weight_distributions_counts: A list of 3D numpy arrays, one per layer, with shape 
         (num neurons, num neurons in previous layer, num bins), where each bin contains the count of networks 
         whose weight at that position falls within the bin's range.
         
         Raises:
         - AttributeError: If store_weights() hasn't been called yet
         """
-        if not hasattr(self, 'layer_weight_distributions'):
-            raise AttributeError("layer_weight_distributions not available. Call store_weights() first.")
+        if not hasattr(self, 'layer_weight_distributions_counts'):
+            raise AttributeError("layer_weight_distributions_counts not available. Call store_weights() first.")
     
-        return self.layer_weight_distributions
+        return self.layer_weight_distributions_counts
         
     def load_models(self):
 
@@ -113,7 +113,79 @@ class WeightBinning():
             network_weights.append(network_weights_per_layer)
         
         return network_weights
+    
+    def populate_bins(self, network_weights, layer_weight_distributions_networks_skeleton):
+        """
+        Populate the weight distribution bins with networks whose weights fall into each bin.
         
+        This function takes the weight data from the set of networks and categorizes each weight
+        into the appropriate bin based on its value, storing the network in the corresponding bin.
+        
+        Parameters:
+        - network_weights: A list of lists, where each inner list contains weight matrices
+          for a specific layer across all networks. Shape is [layers][networks][neurons][weights].
+        - layer_weight_distributions_networks_skeleton: An initialized empty structure for storing
+          networks, with shape [layers][neurons][incoming_weights][num_bins].
+        
+        Returns:
+        - layer_weight_distributions_networks: The filled distribution structure with the networks
+          whose weights fall into each bin for each position in each layer.
+        
+        Notes:
+        - Requires self.layer_bin_ranges to be calculated beforehand.
+        - Each bin contains a list of networks whose weights fall within that bin's range.
+        """
+        # layer bin ranges should exist and have the same number of layers as the skeleton
+        assert len(self.layer_bin_ranges) == len(layer_weight_distributions_networks_skeleton)
+
+        layer_weight_distributions_networks = layer_weight_distributions_networks_skeleton.copy()
+
+        for layer_num, layer_distribution in enumerate(layer_weight_distributions_networks_skeleton):
+            #iterate over neurons in layer
+            for i in range(layer_distribution.shape[0]):  
+                #iterate over incoming weights to neuron
+                for j in range(layer_distribution.shape[1]):  # incoming weights
+                    # for this weight, iterate over each network to add data to corresponding bin
+                    for net_idx, network in enumerate(network_weights[layer_num]):
+                        #select network[neuron i, incoming weight j]
+                        weight = network[i][j]
+                        corresponding_bin = np.digitize(weight, self.layer_bin_ranges[layer_num], right=False) - 1
+                        
+                        #check if weight is in bin range
+                        assert corresponding_bin >= 0 and corresponding_bin < self.NUM_BINS, "Weight out of bin range"
+                        #add to bin count
+                        layer_weight_distributions_networks[layer_num][i][j][corresponding_bin].append(network)
+                        
+        return layer_weight_distributions_networks
+    
+    def derive_counts_from_networks(self, layer_weight_distributions_networks):
+        """
+        Derive count distributions from network distributions by counting networks in each bin.
+        
+        Parameters:
+        - layer_weight_distributions_networks: The distribution structure with networks
+          stored in bins, with shape [layers][neurons][incoming_weights][num_bins].
+        
+        Returns:
+        - layer_weight_distributions_counts: A distribution structure with counts of networks
+          in each bin, with shape [layers][neurons][incoming_weights][num_bins].
+        """
+        layer_weight_distributions_counts = []
+        
+        for layer in layer_weight_distributions_networks:
+            layer_shape = layer.shape[:-1]  # Remove the bin dimension
+            layer_counts = np.zeros(layer_shape + (self.NUM_BINS,), dtype=int)
+            
+            for i in range(layer_shape[0]):
+                for j in range(layer_shape[1]):
+                    for bin_idx in range(self.NUM_BINS):
+                        # Count networks in this bin
+                        layer_counts[i, j, bin_idx] = len(layer[i, j, bin_idx])
+            
+            layer_weight_distributions_counts.append(layer_counts)
+            
+        return layer_weight_distributions_counts
+    
     def store_weights(self):
         """
         Stores and bins the weight distributions loaded networks for further analysis.
@@ -121,9 +193,11 @@ class WeightBinning():
         values from each linear layer.
         
         The method stores the following class attributes:
-        - layer_weight_distributions: A list of 4D numpy arrays, one per layer, with shape 
-          (num neurons, num neurons in previous layer, num bins), where each bin contains the count of networks 
+        - layer_weight_distributions_networks: A list of 4D numpy arrays, one per layer, with shape 
+          (num neurons, num neurons in previous layer, num bins), where each bin contains a list of networks
           whose weight at that position falls within the bin's range
+        - layer_weight_distributions_counts: A list of 4D numpy arrays derived from networks, with counts
+          of networks in each bin
         - layer_bin_ranges: A list of numpy arrays containing the bin edges for each layer
         
         Returns:
@@ -137,35 +211,27 @@ class WeightBinning():
         self.layer_bin_ranges = self.get_layer_bin_ranges(network_fc_indices)
         
         # Initialize weight distributions
-        self.layer_weight_distributions = []
+        layer_weight_distributions_networks_skeleton = []
         for layer_idx, fc_idx in enumerate(network_fc_indices):
             layer = layers[fc_idx]
             layer_shape = layer.weight.shape
-            self.layer_weight_distributions.append(np.zeros(layer_shape + (self.NUM_BINS,), dtype=int))
+            
+            # Create empty array with objects
+            array = np.empty(layer_shape + (self.NUM_BINS,), dtype=object)
+            # Initialize each element to be an empty list
+            for index in np.ndindex(array.shape):
+                array[index] = []
+            layer_weight_distributions_networks_skeleton.append(array)
         
         # Store weights from all networks
         network_weights = self.store_network_weights(network_fc_indices)
-        print(len(network_weights[0]))
-        print(network_weights[0][0])
 
-        #Populate the weight distributions in corresponding bins with the weights from the loaded networks
-        for layer_num, layer_distribution in enumerate(self.layer_weight_distributions):
-            #iterate over neurons in layer
-            for i in range(layer_distribution.shape[0]):  
-                #iterate over incoming weights to neuron
-                for j in range(layer_distribution.shape[1]):  # incoming weights
-                    # for this weight, iterate over each network to add data to corresponding bin
-                    for network in network_weights[layer_num]:
-                        #select network[neuron i, incoming weight j]
-                        weight = network[i][j]
-                        corresponding_bin = np.digitize(weight, self.layer_bin_ranges[layer_num], right=False) - 1
-                        if corresponding_bin >= self.NUM_BINS or corresponding_bin < 0:
-                            print(weight)
-                            #print(corresponding_bin)
-                        self.layer_weight_distributions[layer_num][i][j][corresponding_bin] += 1
-
-
-
+        # Populate bins with networks
+        self.layer_weight_distributions_networks = self.populate_bins(network_weights, layer_weight_distributions_networks_skeleton)
+        
+        # Derive counts from networks
+        self.layer_weight_distributions_counts = self.derive_counts_from_networks(self.layer_weight_distributions_networks)
+        
     def plot_weight_bins(self, weight_distributions, layer, weight_position, bin_edges):
             """
             Parameters:
@@ -195,10 +261,10 @@ class WeightBinning():
     def normalize_distributions(self):
         """
         Normalize the weight distributions so that each bin represents a probability.
-        Creates self.normalized_distributions from self.layer_weight_distributions.
+        Creates self.normalized_distributions from self.layer_weight_distributions_counts.
         """
         self.normalized_distributions = []
-        for layer in self.layer_weight_distributions:
+        for layer in self.layer_weight_distributions_counts:
             layer_counts = []
             for neuron in layer:
                 neuron_counts = []
@@ -597,11 +663,11 @@ class WeightBinning():
         - walkthrough_strategy: 'previous_layer_first' or 'next_layer_first' traversal strategy.
         - start_neuron: Optional, neuron in the selected layer to start the walkthrough from (default is 0).
         """
-        if not hasattr(self, 'layer_weight_distributions') or not hasattr(self, 'layer_bin_ranges'):
+        if not hasattr(self, 'layer_weight_distributions_counts') or not hasattr(self, 'layer_bin_ranges'):
             print("No weight distributions available. Call store_weights() first.")
             return
         
-        weight_distributions = self.layer_weight_distributions
+        weight_distributions = self.layer_weight_distributions_counts
         bin_edges = self.layer_bin_ranges[layer]
         
         num_neurons = weight_distributions[layer].shape[0]  # number of neurons in the selected layer
