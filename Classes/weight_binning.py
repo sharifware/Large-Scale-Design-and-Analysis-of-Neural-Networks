@@ -15,6 +15,12 @@ from scipy.stats import norm
 class WeightBinning():
 
     def __init__(self, architecture, save_dir, load_path, num_bins=30):
+
+        # Assert that num_bins is positive
+        assert num_bins > 0, "Number of bins must be positive"
+        # Assert that load_path exists
+        assert os.path.exists(load_path), f"Load path '{load_path}' does not exist"
+
         os.makedirs(save_dir, exist_ok=True) 
         self.num_bins = num_bins
         self.save_dir = save_dir
@@ -73,10 +79,12 @@ class WeightBinning():
         return self.layer_weight_distributions_counts
         
     def load_models(self):
-
         #Load in the networks
         loaded_state_dict = torch.load(self.load_path, weights_only=True, map_location=torch.device('cpu'))
-
+        
+        # Assert that state_dict contains expected networks
+        assert len(loaded_state_dict) > 0, "State dict is empty - no networks found"
+        
         #create new instantiations to contain the saved networks
         num_networks = len(loaded_state_dict)
         self.networks = []
@@ -85,7 +93,13 @@ class WeightBinning():
 
         for i, network in enumerate(self.networks):
             state_dict_key = f'network_{i+1}'
+            # Assert that the expected key exists in the state dict
+            assert state_dict_key in loaded_state_dict, f"Expected key '{state_dict_key}' not found in state dict"
             network.load_state_dict(loaded_state_dict[state_dict_key])
+        
+        # Assert we have at least one network loaded
+        assert len(self.networks) > 0, "No networks were loaded"
+        
         print("Number of networks loaded:")
         print(len(self.networks))
         return self.networks
@@ -101,6 +115,11 @@ class WeightBinning():
         - network_weights: A list of lists, where each inner list contains the weight matrices
           for a specific layer across all networks
         """
+        # Assert network_fc_indices is not empty
+        assert len(network_fc_indices) > 0, "No fully connected layer indices provided"
+        # Assert networks are loaded
+        assert hasattr(self, 'networks') and len(self.networks) > 0, "Networks not loaded"
+        
         network_weights = []
         for index, layer_index in enumerate(network_fc_indices):
             network_weights_per_layer = []
@@ -109,6 +128,7 @@ class WeightBinning():
                     net_layers = list(network.network.children())
                 else:
                     net_layers = list(network.children())
+                
                 network_weights_per_layer.append(net_layers[layer_index].weight.data.numpy())
             network_weights.append(network_weights_per_layer)
         
