@@ -1,0 +1,12 @@
+LICENCE.txt
+setup.py
+app/nnanalyzer/__init__.py
+app/nnanalyzer.egg-info/PKG-INFO
+app/nnanalyzer.egg-info/SOURCES.txt
+app/nnanalyzer.egg-info/dependency_links.txt
+app/nnanalyzer.egg-info/requires.txt
+app/nnanalyzer.egg-info/top_level.txt
+app/nnanalyzer/src/__init__.py
+app/nnanalyzer/src/network_analyzer.py
+app/nnanalyzer/src/neural_network_trainer.py
+app/nnanalyzer/src/weight_binning.py
