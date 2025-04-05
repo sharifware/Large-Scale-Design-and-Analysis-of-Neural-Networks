@@ -86,19 +86,25 @@ def get_init_weights_by_mask(mask: np.ndarray) -> torch.Tensor:
 
 
 def get_freeze_weight_hook(mask):
-    "Get a gradient hook that freezes the weights according to a mask"
-
+    # Ensure mask is a CPU torch tensor
+    if not isinstance(mask, torch.Tensor):
+        cpu_mask = torch.tensor(mask, dtype=torch.float32)
+    else:
+        cpu_mask = mask.detach().cpu()
+    
     def grad_hook(grad):
-        return grad * mask
+        device_mask = cpu_mask.to(grad.device)
+        return grad * device_mask
 
     return grad_hook
 
 
 def create_masked_network(
-    masks: list[np.ndarray],
-    itype: Literal["masked", "sparse", "static"],
+    itype: Literal["masked", "sparse", "static"] = "masked",
+    masks: list[np.ndarray] = None,
     freeze=True,
 ):
+    masks = masks or MASKS
     model: torch.Module = get_permfree_2to1_regression()
     with torch.no_grad():
         for j, mask in enumerate(masks):
