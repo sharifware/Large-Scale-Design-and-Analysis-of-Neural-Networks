@@ -173,6 +173,53 @@ torch.save(networks_state_dict, f'{output_dir}/trainedNetworks.pt')
 - fixed by adding new check for amount to produce
 - still trains those which are in the queue but doesn't save them
 
+# 2/23/2025
+- Fixed the issue with the parallel training not stopping when the amount to produce is reached (it wasn't earlier)
+- added more robust metadata for the parallel training
+- thinking of how to convert the script to a class, or if I should at all?
 
+# 2/28/2025
+- I reorganized the repo structure
+- Architectures, Classes, data, Docs, Notebooks, Utils, and outputs are the outer folders
+- I've been working on a set of testing notebooks
+- not official testing like Dani is doing, but good to have some notebooks where the code is being used
 
+# 3/6/2025
+- We've been running the permutation free nets on vega for a bit now
+- I've been working on a more robust script for testing and visualizing the accuracy of the networks
+- I think our current architecture/combination of data isn't enough to get the network training well
+- increasing the size will mean longer training times but I think it's necessary
 
+# 3/13/2025
+- using the package at the same time as development is a bit of a pain
+- The issue is I'm frequently updating the package code and I have to reinstall every time
+- I think the best thing will be to just switch to updating the classes for the package then have sharif releas a new version of the package periodically
+
+# 3/18/2025
+- Spent a long time refactoring the WB code to be more modular/cleaner and a good class structure
+- this is definitely much needed as it was very messy 
+- also added some new functionality for fitting the GMM splines
+
+# 3/25/2025
+- started thinking about how to implement the conditional probability heatmap
+- I think it will be more complex than I initially thought
+
+# 3/27/2025
+- new dataset and architecture for permutation free nets to get more accurate results
+- going to be training essentially non-stop on vega from now on
+
+# 4/3/2025
+- Conditional probability heatmap is working, required a lot of refactoring of the code to make things more modular, but it is for the best
+- starting to think about the NCUR presentation
+
+# 4/10/2025
+- made the slides for my presentation today
+
+# 4/12/2025
+- Presentation at NCUR went well, I still wish we had a larger dataset but that will come in time
+- at this point we're working with n = ~20k good perm free nets
+
+# 4/21/205
+- redid the entire poster
+- added all our new results from SD but also my independent study
+- I think it's looking good
