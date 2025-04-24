@@ -81,9 +81,31 @@
 
 # 02/18/2025
 - Corrected save directory location.
-- uploaded pacakge to piPY
+- uploaded pacakge to TestPYPI
 
 # 02/20/2025
 - Fixed bug that occured when user tried installing pacakge from piPY
+- Began Working on testplan
+- 
+# 03/05/2025  
+- Fixed Wheel and Distribution Files for the Package:
+- Resolved issues with the setup.py and pyproject.toml configuration.
+- Successfully built .whl and .tar.gz distribution files using build module.
+ 
+# 03/25/2025  
+- Uploaded the package using twine to the TestPyPI repository.
+- Confirmed successful upload and visibility on TestPyPI.
+
+# 04/03/2025
+- Created an isolated conda Jupyter environment and Installed the package directly from TestPyPI.
+- Executed test cases to validate core functionality and integration.
+- Confirmed consistent behavior with development version and no runtime errors
+
+# 04/10/2025
+- Documented performed test cases
+  
+# 04/24/2025
+- Prepared for production deployment to PyPI.
+
 
  
