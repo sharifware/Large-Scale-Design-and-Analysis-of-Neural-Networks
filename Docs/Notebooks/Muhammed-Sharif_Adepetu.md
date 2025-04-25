@@ -103,9 +103,12 @@
 
 # 04/10/2025
 - Documented performed test cases
-  
+
+# 04/22/2025
+-  performed and documented rest of performed test cases
+
 # 04/24/2025
-- Prepared for production deployment to PyPI.
+- deployed officical package to PyPI.
 
 
  
