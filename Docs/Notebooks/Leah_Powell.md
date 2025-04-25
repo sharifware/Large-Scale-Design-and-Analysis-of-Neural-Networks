@@ -221,11 +221,38 @@ other notes:
 - final prez: flowchart (we made N many networks, then the..), don't explain *what* NN are but say how they're relevant to the world and how our work applies
 - 
 
+# 3.4.2025 (more than one day of notes)
+- working on heatmap, having some struggles with integrating it in the binningweights.ipynb class. Simon tried helping me with explaining what particular data to pull from the other notebook cells to use for the histogram but the diagrams don't come out looking very good. They currently can't be much useful.
 
 
+# 4.15.2025
+meeting with John stakeholder:
+- giving us feedback on our total progress, possible ways the project could go if we kept working on it
+- helepd us with topics to discuss during poster session:
+- looking for patterns
+-  what do we use the patterns for (initialization of networks better)
+- how do the patterns help us understand/how do we use for future analysis
+- can we pre-select the prob. distri. based on a desired task(are there existant best distributions for that specific task?) 
+- how is this affected by the added complexity of choosing an architecture?
+- we need to really illustrate our result, comparing the diagrams is most important
+- our analysis/takeaway doesn't have to be research level
+- what did we get out of this? etc.
+- we finished parallelization with vega, a big step in efficient production of NN in the pipeline (good)
+
+-added to system test plan, cleaned up the test cases that weren't finished and cleaned up the traceability matrix and schedule table in the document. 
+
+# 4.21.2025
+today we submitted the poster, Simon did all the work on re-structuring it and adding the diagrams since he had access to most of the example diagrams from testing very large scales of neural networks. There was a bit of a confusion with Akbas cause he was viewing the wrong visual on the .ppt file but we eventually got his feedback, and I submitted it for us a little later than the due date with his feedback which was mainly grammatical errors and replacing the equations at the top right.
 
 
-
+# 4.24.2025
+Today was the poster presentation and the final day for us to submit everything related to our project. 
+During the lapse of engineering notebook entries during March-April:
+- simon took over the heatmap due to my struggling and produced heatmapts that were very impressive and it helped me understand that my idea of the heatmaps was very different than his, which affected my overall understanding of why we needed them
+- the package needed to be continuously worked on for a couple meetings, especially after the break, mostly because there were small details in it not working like the user had to pre-install a pip for a certain library because the package could not install it for them
+- the package is working perfectly now and in hindsight I wish I could have gone in and made a readme file as planned so future users of it wouldn't have to figure it out themselves, although the naming conventions of each .ipynb file are quite straightforward (and john is the only person we know will use this project)
+- I gained a much better understanding of what the project's goal really means to the AI field, and engineering in general. If our pipeline helps people find patterns that make AI "better" that would be a great outcome of everyone's hard work.
+- communicated with team members much more this semester, often for small things like asking what its called that our network is learning a function (regressive) or to clarify what each member is working on.
 
 
 
