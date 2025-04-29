@@ -1,4 +1,4 @@
-## Large-Scale Design and Analysis of Neural Networks
+# Large-Scale Design and Analysis of Neural Networks
 
 This project provides a Python package for the large-scale training, analysis, and visualization of neural network weight distributions. The framework supports generating diverse neural networks, analyzing weight distributions across models, fitting statistical models, clustering distributions based on KL divergence, and visualizing key properties to inform architecture and training design decisions.
 
@@ -20,9 +20,9 @@ pip install -i https://test.pypi.org/simple/ nnanalyzer==0.5.5
 Or install from source:
 pip install .
 
-## Main Components
+# Main Components
 
-# Network Analyser
+## Network Analyser
 - generate_networks(): Generates multiple networks meeting convergence criteria.
 - check_loss(): Trains and evaluates a single network, visualizing loss.
 - __train_network__(): Internal method for model training with early stopping.
@@ -41,7 +41,7 @@ pip install .
 - create_experiment_metadata(): Records detailed metadata for experiments.
 - run(): Executes the complete network training pipeline
 
-# WeightBinning
+## WeightBinning
 - store_weights(): Extracts and bins weights into histograms.
 - normalize_distributions(): Converts bin counts into probability distributions.
 - fit_distributions(multi_peak=False): Fits single or multi-peak distributions (GMMs) to weight data.
@@ -52,7 +52,7 @@ pip install .
 - weights_walkthrough(): Step-by-step visualization of neuron-level weight distributions.
 
 
-# Typical Workflow
+## Typical Workflow
 1. Use NeuralNetworkTrainer to mass-produce trained models. 
 2. Alternatively, use NetworkAnalyzer for streamlined single-network generation
 3. Initialize WeightBinning with saved network models and architecture.
@@ -63,7 +63,7 @@ pip install .
 8. Visualize representative distributions and conditional relationships.
 
 
-# Requirements
+## Requirements
 - Python >= 3.8
 - PyTorch
 - NumPy
@@ -72,7 +72,7 @@ pip install .
 - Matplotlib
 - pandas
 
-License
+## License
 This project is licensed under the MIT License.
 
 
